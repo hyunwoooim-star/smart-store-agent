@@ -31,15 +31,24 @@ from analyzers.gemini_analyzer import (
 from analyzers.spec_validator import SpecValidator, SpecData, ValidationResult
 from generators.gap_reporter import GapReporter, OpportunityReport
 
+# Supabase 연동 (선택적)
+try:
+    from utils.supabase_client import db_manager, MockSupabaseManager
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    db_manager = None
+
 
 class SmartStoreAgent:
     """스마트스토어 자동화 에이전트"""
 
-    def __init__(self, use_mock_gemini: bool = True, output_dir: str = "output"):
+    def __init__(self, use_mock_gemini: bool = True, output_dir: str = "output", save_to_db: bool = False):
         """
         Args:
             use_mock_gemini: True면 Mock Gemini 사용 (API 키 불필요)
             output_dir: 출력 디렉토리
+            save_to_db: True면 Supabase에 결과 저장
         """
         self.margin_calculator = MarginCalculator()
         self.data_importer = DataImporter()
@@ -55,6 +64,13 @@ class SmartStoreAgent:
 
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+
+        # Supabase 연동
+        self.save_to_db = save_to_db
+        if save_to_db and SUPABASE_AVAILABLE:
+            self.db = db_manager
+        else:
+            self.db = None
 
     def analyze_product(
         self,
@@ -193,6 +209,25 @@ class SmartStoreAgent:
         filepath = self.reporter.save_report(report)
         print(f"  - 리포트 저장: {filepath}")
 
+        # Supabase에 저장 (옵션)
+        if self.db and self.db.is_ready:
+            ai_result = None
+            if gemini_result:
+                ai_result = {
+                    "complaint_patterns": complaint_patterns,
+                    "key_insights": gemini_result.key_insights if gemini_result.key_insights else []
+                }
+
+            report_md = self.reporter.to_markdown(report)
+            db_id = self.db.save_analysis_result(
+                keyword=product_name,
+                margin_result=margin_dict,
+                ai_result=ai_result,
+                report_md=report_md
+            )
+            if db_id:
+                print(f"  - DB 저장 완료 (ID: {db_id})")
+
         # 결과 출력
         self._print_summary(report)
 
@@ -300,6 +335,7 @@ def main():
     parser.add_argument("--excel", type=str, help="키워드 엑셀 파일")
     parser.add_argument("--mock", action="store_true", default=True, help="Mock Gemini 사용")
     parser.add_argument("--output", type=str, default="output", help="출력 디렉토리")
+    parser.add_argument("--save-db", action="store_true", help="Supabase에 결과 저장")
 
     args = parser.parse_args()
 
@@ -323,7 +359,7 @@ def main():
         except:
             print("박스 크기 형식 오류. 기본값 사용.")
 
-    agent = SmartStoreAgent(use_mock_gemini=args.mock, output_dir=args.output)
+    agent = SmartStoreAgent(use_mock_gemini=args.mock, output_dir=args.output, save_to_db=args.save_db)
 
     agent.analyze_product(
         product_name=args.product,
