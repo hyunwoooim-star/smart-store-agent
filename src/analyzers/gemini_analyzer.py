@@ -434,6 +434,64 @@ JSON만 출력하세요.
 
         return result
 
+    def analyze_reviews(self, keyword: str, reviews: list) -> dict:
+        """
+        리뷰 데이터를 분석하여 불만 패턴, 카피라이팅, 스펙 체크리스트 도출
+
+        Args:
+            keyword: 분석 키워드
+            reviews: 리뷰 리스트 [{"text": "리뷰내용"}, ...]
+
+        Returns:
+            분석 결과 딕셔너리
+        """
+        print(f"🤖 [Gemini] Analyzing {len(reviews)} reviews for '{keyword}'...")
+
+        # 리뷰 텍스트만 추출하여 프롬프트 컨텍스트로 구성
+        review_text_blob = "\n".join([r['text'] for r in reviews[:50]])  # 토큰 제한
+
+        prompt = f"""
+당신은 프로페셔널한 e-커머스 상품 기획자입니다.
+다음은 '{keyword}' 상품에 대한 고객 리뷰 샘플입니다.
+
+[리뷰 데이터]
+{review_text_blob}
+
+[지시사항]
+1. **불만 패턴 분석**: 실제 구매자들이 느끼는 가장 큰 불만 3가지를 찾으세요. (단순 "별로예요"는 제외, 구체적 이유만)
+2. **Semantic Gap**: 시장에 없지만 고객이 원하는 니즈(Gap)를 찾으세요.
+3. **개선 카피라이팅**: 위 불만을 해결했음을 강조하는 대책으로 상세페이지 하드카피 1개 - 중요: 허위 과장을 막기 위해, 각 카피를 쓰기 위해 제품이 갖춰야 할 '필수 스펙'!
+4. **스펙 체크리스트**: 소싱 시 판매자가 반드시 확인해야 할 체크리스트를 만드세요.
+
+[출력 형식]
+반드시 아래 JSON 포맷으로만 출력하세요. 마크다운이나 설명 금지.
+{{
+    "complaint_patterns": [
+        {{"pattern": "불만 내용 요약", "frequency": "예상 빈도(높음/중간/낮음)"}}
+    ],
+    "semantic_gaps": ["니즈1", "니즈2"],
+    "copywriting_suggestions": [
+        {{"copy": "카피 문구", "required_spec": "필수 스펙 (예: 무게 1.5kg 이하)"}}
+    ],
+    "spec_checklist": ["체크항목1", "체크항목2"]
+}}
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            return self._parse_json_response(response.text)
+        except Exception as e:
+            print(f"❌ [Gemini] API Error: {str(e)}")
+            return self._get_fallback_data()
+
+    def _get_fallback_data(self) -> dict:
+        """API 실패 시 기본 데이터 반환 (테스트용)"""
+        return {
+            "error": "API Error",
+            "complaint_patterns": [],
+            "copywriting_suggestions": []
+        }
+
     def full_analysis(self, reviews_text: str, product_info: str) -> GeminiAnalysisResult:
         """종합 분석"""
         result = GeminiAnalysisResult(
