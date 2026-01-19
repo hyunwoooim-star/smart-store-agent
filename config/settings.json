@@ -1,0 +1,51 @@
+{
+  "version": "3.1",
+  "project_name": "smart-store-agent",
+
+  "exchange_rates": {
+    "CNY_KRW": 190
+  },
+
+  "tariff_rates": {
+    "가구/인테리어": 0.08,
+    "캠핑/레저": 0.08,
+    "의류/패션": 0.13,
+    "전자기기": 0.08,
+    "생활용품": 0.08,
+    "주방용품": 0.08,
+    "뷰티/화장품": 0.08,
+    "기타": 0.10
+  },
+
+  "cost_rates": {
+    "vat_rate": 0.10,
+    "naver_fee_rate": 0.055,
+    "return_allowance_rate": 0.05,
+    "ad_cost_rate": 0.10
+  },
+
+  "shipping": {
+    "air_freight_per_kg": 8000,
+    "sea_freight_per_kg": 3000,
+    "domestic_shipping": 3000,
+    "volume_weight_divisor": 6000
+  },
+
+  "margin_thresholds": {
+    "minimum_viable": 15,
+    "low_risk": 30,
+    "target": 30
+  },
+
+  "gemini": {
+    "model": "gemini-1.5-flash",
+    "max_tokens": 4096,
+    "temperature": 0.3
+  },
+
+  "analysis": {
+    "min_reviews_for_analysis": 50,
+    "max_reviews_per_batch": 500,
+    "negative_keyword_threshold": 0.7
+  }
+}
