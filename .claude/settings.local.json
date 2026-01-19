@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: 프로젝트 초기 설정 완료 \\(Step 1\\)\n\n- 프로젝트 폴더 구조 생성\n- requirements.txt \\(의존성 목록\\)\n- .env.example \\(환경변수 템플릿\\)\n- config/settings.json \\(전역 설정 - v3.1\\)\n- config/negative_keywords.json \\(부정 키워드 사전\\)\n- CLAUDE.md \\(프로젝트 컨텍스트\\)\n- .gitignore\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(python src/sourcing/margin_calculator.py:*)",
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(py -3:*)",
+      "Bash(\"C:\\\\Users\\\\임현우\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\python3.exe\" --version)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

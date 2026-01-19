@@ -1,0 +1,82 @@
+{
+  "products": [
+    {
+      "name": "초경량 캠핑 의자",
+      "category": "캠핑/레저",
+      "wholesale_price_cny": 45,
+      "actual_weight_kg": 2.5,
+      "dimensions_cm": [80, 20, 15],
+      "moq": 50,
+      "target_price_krw": 45000,
+      "supplier_rating": 4.5,
+      "specs": {
+        "material": "알루미늄 합금 + 옥스포드 원단",
+        "max_load_kg": 120,
+        "colors": ["블랙", "네이비", "카키"],
+        "waterproof": false
+      }
+    },
+    {
+      "name": "미니 캠핑 테이블",
+      "category": "캠핑/레저",
+      "wholesale_price_cny": 25,
+      "actual_weight_kg": 1.2,
+      "dimensions_cm": [50, 35, 8],
+      "moq": 30,
+      "target_price_krw": 25000,
+      "supplier_rating": 4.2,
+      "specs": {
+        "material": "알루미늄",
+        "max_load_kg": 30,
+        "colors": ["실버", "블랙"],
+        "foldable": true
+      }
+    },
+    {
+      "name": "LED 캠핑 랜턴",
+      "category": "캠핑/레저",
+      "wholesale_price_cny": 15,
+      "actual_weight_kg": 0.3,
+      "dimensions_cm": [10, 10, 15],
+      "moq": 100,
+      "target_price_krw": 18000,
+      "supplier_rating": 4.7,
+      "specs": {
+        "battery": "18650 리튬",
+        "brightness": "300루멘",
+        "waterproof": "IPX4",
+        "runtime": "8시간"
+      }
+    },
+    {
+      "name": "캠핑용 코펠 세트",
+      "category": "캠핑/레저",
+      "wholesale_price_cny": 35,
+      "actual_weight_kg": 0.8,
+      "dimensions_cm": [20, 20, 15],
+      "moq": 20,
+      "target_price_krw": 35000,
+      "supplier_rating": 4.3,
+      "specs": {
+        "material": "스테인리스 스틸",
+        "pieces": 7,
+        "capacity": "2-3인용"
+      }
+    },
+    {
+      "name": "접이식 캠핑 매트",
+      "category": "캠핑/레저",
+      "wholesale_price_cny": 20,
+      "actual_weight_kg": 0.5,
+      "dimensions_cm": [180, 60, 2],
+      "moq": 50,
+      "target_price_krw": 22000,
+      "supplier_rating": 4.0,
+      "specs": {
+        "material": "XPE 폼",
+        "thickness": "2cm",
+        "waterproof": true
+      }
+    }
+  ]
+}
