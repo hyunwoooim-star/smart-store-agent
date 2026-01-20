@@ -13,7 +13,9 @@
       "Bash(git commit:*)",
       "Bash(git config:*)",
       "Bash(gh auth:*)",
-      "Bash(gh repo create:*)"
+      "Bash(gh repo create:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)"
     ]
   }
 }
