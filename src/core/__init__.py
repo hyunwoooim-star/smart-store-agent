@@ -1,4 +1,4 @@
-"""코어 모듈"""
+"""코어 모듈 (v3.3)"""
 from .exceptions import (
     SmartStoreError,
     ValidationError,
@@ -11,8 +11,11 @@ from .exceptions import (
     ReportGenerationError,
 )
 from .error_handler import ErrorHandler, error_handler
+from .config import AppConfig, DEFAULT_CONFIG, MARKET_FEES
+from .logging import setup_logger
 
 __all__ = [
+    # 예외
     "SmartStoreError",
     "ValidationError",
     "ConfigurationError",
@@ -24,4 +27,9 @@ __all__ = [
     "ReportGenerationError",
     "ErrorHandler",
     "error_handler",
+    # 설정 (v3.3)
+    "AppConfig",
+    "DEFAULT_CONFIG",
+    "MARKET_FEES",
+    "setup_logger",
 ]
