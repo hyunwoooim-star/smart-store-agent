@@ -76,7 +76,7 @@ class AlibabaScraper:
         if self._llm is None:
             from langchain_google_genai import ChatGoogleGenerativeAI
             self._llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
+                model="gemini-1.5-flash",  # 2.0보다 할당량 안정적
                 google_api_key=self.api_key,
                 temperature=0,  # 정확한 추출을 위해 0
             )
