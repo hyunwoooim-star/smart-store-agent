@@ -11,19 +11,25 @@
 - [x] CLI 인터페이스
 - [x] GitHub 저장소 생성
 - [x] **MarginConfig 설정 주입 방식 적용 (v3.2)**
+- [x] **마스터 시스템 프롬프트 적용 (v3.2)**
+- [x] **Browser-Use + Streamlit 의존성 추가**
 
 ### Gemini 코드 리뷰 결과 (2026-01-20)
 - ✅ 마진 계산기: 부피무게, 숨겨진 비용, BEP 로직 정확
 - ✅ Gemini 분석기: 구조화된 프롬프트, 안전장치 완비
 - ✅ 오케스트레이션: 파이프라인 매끄러움, 확장성 좋음
 
-### Gemini 피드백 반영 사항
-| 피드백 | 적용 상태 |
-|--------|-----------|
-| 환율/배대지 요금 하드코딩 → 설정 주입 | ✅ MarginConfig 클래스 |
-| Supabase RLS 정책 주의 | 📋 체크리스트에 추가 |
-| Gemini Vision으로 OCR 대체 | 📋 Phase 3 계획 반영 |
-| Pre-Flight Check 기능 | 📋 Phase 4 계획 반영 |
+---
+
+## 🛠 기술 스택 (2026 최신)
+
+| 구분 | 기술 | 용도 |
+|------|------|------|
+| **브라우저 에이전트** | [Browser-Use](https://github.com/browser-use/browser-use) | 1688 자동 소싱 (마우스/키보드 AI 제어) |
+| **웹 프레임워크** | Streamlit | 1인용 대시보드 (30분 완성) |
+| **데이터 검증** | Pydantic | AI 출력 JSON 형식 검사 |
+| **코딩 파트너** | Claude Code CLI | 터미널에서 파일 수정/생성 |
+| **AI 분석** | Gemini 1.5 Flash + Vision | 리뷰 분석 + 이미지 스펙 추출 |
 
 ---
 
@@ -35,10 +41,8 @@
 #### 체크리스트
 - [ ] `.env` 파일 생성 및 API 키 입력
 - [ ] `pip install -r requirements.txt` 실행
+- [ ] `playwright install` 실행 (브라우저 엔진)
 - [ ] **Supabase RLS 정책 확인** (중요!)
-  - Supabase 대시보드 → Authentication → Policies
-  - `analyses` 테이블에 INSERT 정책 확인
-  - 테스트 시 RLS 끄거나, anon 키에 권한 부여
 - [ ] Mock 테스트: `python src/main.py --demo`
 - [ ] 실전 테스트: 캠핑의자 시나리오
 - [ ] DB 저장 확인
@@ -60,7 +64,7 @@
 - 1인 사용 도구에 최적
 
 #### 핵심 기능 (우선순위순)
-1. **⭐ 변수 설정 패널** (Gemini 권장 - 최우선)
+1. **변수 설정 패널** (Gemini 권장 - 최우선)
    - 환율 입력 (기본값: 190)
    - 배대지 요금 조정
    - 관세율 수정
@@ -79,48 +83,53 @@
    - Supabase에서 과거 분석 조회
    - 리포트 다운로드
 
-#### 예시 코드 구조
-```python
-# app.py
-import streamlit as st
-from src.sourcing.margin_calculator import MarginCalculator, MarginConfig
-
-st.title("Smart Store Agent")
-
-# 사이드바: 설정 변경 (Gemini 권장)
-with st.sidebar:
-    st.header("설정")
-    exchange_rate = st.number_input("환율 (CNY→KRW)", value=190)
-    shipping_rate = st.number_input("배대지 요금 (원/kg)", value=8000)
-    ad_rate = st.slider("광고비 비율", 0.0, 0.20, 0.10)
-
-# 커스텀 설정으로 계산기 생성
-config = MarginConfig(
-    exchange_rate=exchange_rate,
-    shipping_rate_air=shipping_rate,
-    ad_cost_rate=ad_rate
-)
-calculator = MarginCalculator(config=config)
-```
-
 ---
 
-### Phase 3: 자동화 확장 (2-3주)
-> "눈을 달자" - 이미지 기반 소싱 자동화
+### Phase 3: Browser-Use 자동화 (2-3주)
+> "눈을 달자" - AI 브라우저 자동화
 
-| 기능 | 기술 | 우선순위 | Gemini 제언 |
-|------|------|----------|-------------|
-| **이미지 스펙 추출** | Gemini Pro Vision | 높음 | OCR보다 Vision 모델 추천 |
-| 가격 모니터링 | 스케줄러 + 알림 | 중간 | - |
-| 리뷰 수집 자동화 | 엑셀 파싱 | 중간 | - |
-| 키워드 트렌드 | 데이터 시각화 | 낮음 | - |
+#### Browser-Use란?
+- **AI가 브라우저를 "보고(Vision)", "클릭"하고, "입력"하는 자동화**
+- API 없는 사이트(1688, 타오바오)도 자동화 가능
+- Playwright 기반 + LLM(Gemini/OpenAI) 연동
+- WebVoyager 벤치마크 89.1% 정확도
 
-#### Gemini Vision 활용 방안
+#### 기능 계획
+
+| 기능 | 설명 | 우선순위 |
+|------|------|----------|
+| **1688 최저가 검색** | AI가 1688 들어가서 최저가 공장 3곳 찾기 | 높음 |
+| **이미지 스펙 추출** | Gemini Vision으로 상품 이미지에서 스펙 추출 | 높음 |
+| 가격 모니터링 | 경쟁사 가격 변동 추적 | 중간 |
+| 리뷰 수집 자동화 | 네이버 리뷰 자동 수집 | 중간 |
+
+#### Browser-Use 예시 코드
 ```python
-# 기존 Gemini API 활용 (추가 비용 최소화)
-# 1688 상품 이미지 URL → Gemini Vision → JSON 스펙
-prompt = "이 상품 이미지에서 스펙표를 읽어서 JSON으로 반환해"
+from browser_use import Agent
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Gemini 모델 설정
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
+
+# AI 브라우저 에이전트 생성
+agent = Agent(
+    task="1688.com에서 '캠핑의자' 검색하고 가격이 45위안 이하인 공장 3곳 찾아줘. 각 공장의 이름, 가격, MOQ를 정리해줘.",
+    llm=llm
+)
+
+# 실행 (AI가 알아서 클릭, 스크롤, 입력)
+result = await agent.run()
+print(result)
 ```
+
+#### Chrome MCP vs Browser-Use 비교
+
+| 항목 | Claude Code + Chrome MCP | Browser-Use |
+|------|-------------------------|-------------|
+| **용도** | 개발 중 페이지 분석 | 운영 자동화 |
+| **장점** | 실시간 상호작용, 빠름 | 서버에서 자동 실행 가능 |
+| **단점** | 수동 조작 필요 | 느림 (사람처럼 동작) |
+| **추천** | 코드 작성 시 | 반복 작업 자동화 |
 
 ---
 
@@ -130,24 +139,11 @@ prompt = "이 상품 이미지에서 스펙표를 읽어서 JSON으로 반환해
 | 기능 | 설명 | Gemini 제언 |
 |------|------|-------------|
 | **Pre-Flight Check** | 네이버 금지어 검사 | 등록 전 필수 검증 |
+| **상세페이지 자동 생성** | Gemini로 카피 + 캔바/미리캔버스 연동 | - |
 | 멀티 스토어 지원 | 여러 계정 관리 | - |
 | 자동 상품 등록 | Commerce API | 검수 로직 까다로움 주의 |
 | 재고 관리 | 1688 ↔ 스마트스토어 | - |
 | 정산 리포트 | 월별 자동 집계 | - |
-
-#### Pre-Flight Check 기능 (spec_validator.py 확장)
-```python
-# 네이버 금지어 목록
-FORBIDDEN_WORDS = ["최저가", "1위", "특허", "의료기기", ...]
-
-def pre_flight_check(product_title: str, description: str) -> list:
-    """등록 전 금지어 검사"""
-    violations = []
-    for word in FORBIDDEN_WORDS:
-        if word in product_title or word in description:
-            violations.append(f"금지어 발견: {word}")
-    return violations
-```
 
 ---
 
@@ -164,12 +160,13 @@ Week 2: Phase 2 (Streamlit 대시보드)
         - 마진 계산 폼
         - 결과 시각화
 
-Week 3-4: Phase 3 (자동화)
+Week 3-4: Phase 3 (Browser-Use 자동화)
+        - 1688 최저가 검색 자동화
         - Gemini Vision 이미지 스펙 추출
-        - 가격 모니터링
 
 Week 5+: Phase 4 (확장)
         - Pre-Flight Check
+        - 상세페이지 자동 생성
         - 자동 상품 등록
 ```
 
@@ -186,6 +183,7 @@ cp .env.example .env
 ### Step 2: 의존성 설치
 ```bash
 pip install -r requirements.txt
+playwright install
 ```
 
 ### Step 3: Supabase RLS 확인 (중요!)
@@ -200,7 +198,7 @@ pip install -r requirements.txt
 # Mock 테스트
 python src/main.py --demo
 
-# 실전 테스트 (설정 변경 가능!)
+# 실전 테스트
 python src/main.py \
   --product "초경량 릴렉스 캠핑의자" \
   --category "캠핑/레저" \
@@ -220,16 +218,22 @@ python src/main.py \
 | **GitHub 저장소** | https://github.com/hyunwoooim-star/smart-store-agent |
 | **로드맵 문서** | https://github.com/hyunwoooim-star/smart-store-agent/blob/main/docs/ROADMAP.md |
 
+### 참고 자료
+- [Browser-Use GitHub](https://github.com/browser-use/browser-use)
+- [Browser-Use 공식 문서](https://browser-use.com/)
+- [Claude Code Best Practices](https://www.anthropic.com/engineering/claude-code-best-practices)
+- [Streamlit 공식 문서](https://docs.streamlit.io/)
+
 ---
 
 ## 📊 최종 로드맵 요약
 
 ```
 [완료] Phase 1: 핵심 엔진 개발
-[완료] v3.2: MarginConfig 설정 주입
+[완료] v3.2: MarginConfig + 마스터 프롬프트
 [현재] Phase 1.5: 통합 테스트 및 실전 검증
 [다음] Phase 2: Streamlit 대시보드 (변수 설정 최우선)
-[예정] Phase 3: Gemini Vision 이미지 자동화
+[예정] Phase 3: Browser-Use 1688 자동화
 [예정] Phase 4: Pre-Flight Check + 비즈니스 확장
 ```
 
@@ -244,7 +248,9 @@ python src/main.py \
 | Streamlit 선택 | "신의 한 수" 평가 | 유지 |
 | 변수 설정 UI | Phase 2 최우선 작업 | 계획 |
 | Gemini Vision | OCR 대신 Vision 활용 | Phase 3 계획 |
+| Browser-Use | 1688 자동화 | Phase 3 계획 |
 | Pre-Flight Check | 금지어 검사 기능 | Phase 4 계획 |
+| 마스터 프롬프트 | 베테랑 MD 페르소나 | 완료 |
 
 ---
 
@@ -252,4 +258,5 @@ python src/main.py \
 *버전: v3.2*
 *상태: Phase 1 완료, Phase 1.5 진행 중*
 *UI 결정: Streamlit 웹 대시보드*
+*자동화: Browser-Use (Phase 3)*
 *Gemini 피드백: 전체 반영 완료*

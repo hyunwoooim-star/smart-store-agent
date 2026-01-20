@@ -1,11 +1,16 @@
 """
-gemini_analyzer.py - Gemini AI 분석 모듈 (v3.1)
+gemini_analyzer.py - Gemini AI 분석 모듈 (v3.2)
 
 핵심 기능:
 1. 불만 패턴 TOP 5 분석
 2. Semantic Gap 식별 (고객 기대 vs 실제 제품)
 3. 개선 카피라이팅 생성
 4. 스펙 체크리스트 추출
+
+v3.2 변경사항 (Gemini 피드백 반영):
+- 마스터 시스템 프롬프트 추가 (베테랑 MD 페르소나)
+- 비판적 사고 + 보수적 마진 + 근거 중심 원칙 적용
+- JSON 출력 강제 규칙 강화
 """
 
 import os
@@ -95,17 +100,34 @@ class GeminiAnalysisResult:
 
 
 class GeminiAnalyzer:
-    """Gemini AI 분석기"""
+    """Gemini AI 분석기 (v3.2 - 마스터 프롬프트 적용)"""
 
     # Gemini 모델 설정
     DEFAULT_MODEL = "gemini-1.5-flash"
 
+    # =========================================================
+    # 마스터 시스템 프롬프트 (Gemini 피드백 반영)
+    # "10년차 베테랑 MD + 깐깐한 품질 관리자" 페르소나
+    # =========================================================
+    SYSTEM_PROMPT = """당신은 '10년 차 베테랑 MD'이자 '깐깐한 품질 관리자'입니다.
+당신의 목표는 "사장님의 돈을 지키는 것"입니다.
+
+[분석 원칙]
+1. 비판적 사고: 판매자의 상세페이지는 모두 "광고"라고 가정하고, 리뷰의 "진짜 불만"에 집중하세요.
+2. 보수적 마진: 배송비, 관세, 반품비는 항상 최악의 상황(최대치)을 가정하여 계산하세요.
+3. 근거 중심: "좋아 보입니다" 같은 모호한 말 금지. "리뷰 30%가 내구성을 지적함"처럼 숫자로 말하세요.
+
+[출력 제한]
+- 모든 출력은 반드시 JSON 포맷을 준수하세요.
+- 마크다운이나 잡담(인사말)은 절대 포함하지 마세요.
+- 코드 블록(```)도 사용하지 마세요. 순수 JSON만 출력하세요.
+"""
+
     # 프롬프트 템플릿
     PROMPTS = {
         AnalysisType.COMPLAINT_PATTERN: """
-당신은 이커머스 상품 리뷰 분석 전문가입니다.
-
 아래 불만 리뷰들을 분석하여 TOP 5 불만 패턴을 도출해주세요.
+'단순 변심'은 제외하고, '제품의 구조적 결함'만 집중 분석하세요.
 
 ## 분석 요청
 {reviews}
@@ -156,10 +178,12 @@ JSON만 출력하세요.
 """,
 
         AnalysisType.COPYWRITING: """
-당신은 이커머스 카피라이터입니다.
-
 아래 불만 사항들을 해소하는 상품 카피를 작성해주세요.
-불만 → 장점으로 전환하는 카피입니다.
+
+[중요 지침]
+- '최고예요' 같은 뻔한 말 금지
+- 고객이 '내 불안을 해소해줬다'고 느낄 수 있는 문제 해결 중심 카피 작성
+- 예시: "허리 아픈 캠핑의자" → "3시간 앉아도 뻐근하지 않은 S자 곡선"
 
 ## 불만 사항
 {complaints}
@@ -259,7 +283,11 @@ JSON만 출력하세요.
 
         try:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.DEFAULT_MODEL)
+            # 시스템 프롬프트 적용 (v3.2)
+            self.model = genai.GenerativeModel(
+                self.DEFAULT_MODEL,
+                system_instruction=self.SYSTEM_PROMPT
+            )
             self._initialized = True
             return True
         except Exception:
