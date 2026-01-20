@@ -1,11 +1,16 @@
 """
-margin_calculator.py - 중국 사입 실제 마진 계산기 (v3.1 Final)
+margin_calculator.py - 중국 사입 실제 마진 계산기 (v3.2)
 
 핵심 기능:
 1. 부피무게(Volume Weight) 자동 계산 및 청구무게 적용
 2. 숨겨진 비용(반품충당금, 광고비) 반영으로 현실적 마진 도출
 3. 손익분기점(BEP) 및 목표 판매가 자동 산출
 4. 2-Track 전략(셀플링 vs 사입) 추천
+
+v3.2 변경사항 (Gemini 피드백 반영):
+- MarginConfig 클래스로 설정 분리 (환율, 배대지 요금 등)
+- Streamlit UI에서 실시간 설정 변경 가능
+- 하위 호환성 유지 (기존 코드 그대로 동작)
 """
 
 from dataclasses import dataclass
@@ -65,19 +70,38 @@ class MarginResult:
     target_margin_price_krw: int    # 목표 마진(30%) 달성 판매가
 
 
+@dataclass
+class MarginConfig:
+    """마진 계산 설정값 (v3.2 - 설정 주입 방식)
+
+    Streamlit UI나 외부에서 값을 변경할 수 있도록 설정을 분리.
+    환율 변동, 배대지 요금 인상 시 코드 수정 없이 대응 가능.
+    """
+    exchange_rate: float = 190              # 환율 (원/위안)
+    vat_rate: float = 0.10                  # 부가세 (10%)
+    naver_fee_rate: float = 0.055           # 네이버 수수료 (5.5%)
+    return_allowance_rate: float = 0.05     # 반품/CS 충당금 (5%)
+    ad_cost_rate: float = 0.10              # 광고비 (10%)
+    volume_weight_divisor: int = 6000       # 부피무게 계수 (항공 표준)
+    domestic_shipping: int = 3000           # 국내 택배비 (건당)
+    shipping_rate_air: int = 8000           # 항공 배대지 kg당 요금
+    shipping_rate_sea: int = 3000           # 해운 배대지 kg당 요금
+
+
+# 기본 설정 (전역 인스턴스)
+DEFAULT_CONFIG = MarginConfig()
+
+
 class MarginCalculator:
-    """마진 계산기 v3.1"""
+    """마진 계산기 v3.2 (설정 주입 방식)
 
-    # --- 상수 설정 (v3.1 확정값) ---
-    EXCHANGE_RATE = 190                 # 환율 (원/위안)
-    VAT_RATE = 0.10                     # 부가세 (10%)
-    NAVER_FEE_RATE = 0.055              # 네이버 수수료 (5.5%)
-    RETURN_ALLOWANCE_RATE = 0.05        # 반품/CS 충당금 (5%)
-    AD_COST_RATE = 0.10                 # 광고비 (10%)
-    VOLUME_WEIGHT_DIVISOR = 6000        # 부피무게 계수 (항공 표준)
-    DOMESTIC_SHIPPING = 3000            # 국내 택배비 (건당)
+    변경점 (v3.2):
+    - 상수를 MarginConfig 클래스로 분리
+    - 생성자에서 config 주입 가능 (Streamlit UI 연동 대비)
+    - 기존 코드와 하위 호환성 유지
+    """
 
-    # 카테고리별 관세율
+    # 카테고리별 관세율 (변동 가능성 낮아 클래스 상수로 유지)
     TARIFF_RATES = {
         "가구/인테리어": 0.08,
         "캠핑/레저": 0.08,
@@ -87,12 +111,48 @@ class MarginCalculator:
         "기타": 0.10
     }
 
-    # 배대지 요금표 (예시: kg당 요금, 실제로는 구간별 요금표 적용 필요)
-    # 기본 1kg: 8000원, 추가 0.5kg당 가격 등 복잡하지만 여기선 단순화
-    SHIPPING_AGENCY_RATES = {
-        "항공": 8000,   # kg당
-        "해운": 3000,   # kg당
-    }
+    def __init__(self, config: Optional[MarginConfig] = None):
+        """
+        Args:
+            config: 마진 계산 설정. None이면 기본값 사용.
+        """
+        self.config = config or DEFAULT_CONFIG
+
+    # 설정값 접근 프로퍼티 (하위 호환성 + 가독성)
+    @property
+    def EXCHANGE_RATE(self) -> float:
+        return self.config.exchange_rate
+
+    @property
+    def VAT_RATE(self) -> float:
+        return self.config.vat_rate
+
+    @property
+    def NAVER_FEE_RATE(self) -> float:
+        return self.config.naver_fee_rate
+
+    @property
+    def RETURN_ALLOWANCE_RATE(self) -> float:
+        return self.config.return_allowance_rate
+
+    @property
+    def AD_COST_RATE(self) -> float:
+        return self.config.ad_cost_rate
+
+    @property
+    def VOLUME_WEIGHT_DIVISOR(self) -> int:
+        return self.config.volume_weight_divisor
+
+    @property
+    def DOMESTIC_SHIPPING(self) -> int:
+        return self.config.domestic_shipping
+
+    @property
+    def SHIPPING_AGENCY_RATES(self) -> dict:
+        return {
+            "항공": self.config.shipping_rate_air,
+            "해운": self.config.shipping_rate_sea,
+        }
 
     def calculate_volume_weight(self, dims: ProductDimensions) -> float:
         """부피무게 = (가로 x 세로 x 높이) / 6000"""
