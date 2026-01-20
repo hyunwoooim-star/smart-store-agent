@@ -1,16 +1,20 @@
 """
-alibaba_scraper.py - 1688 상품 정보 자동 추출기 (Phase 3)
+alibaba_scraper.py - 1688 상품 정보 자동 추출기 (Phase 3.5 - Option B)
 
-Browser-Use + Gemini를 이용한 AI 기반 스크래핑
-- 1688 상품 URL에서 가격, 무게, 사이즈 자동 추출
-- 안티봇 우회를 위한 User-Agent 조작
-- 로그인 팝업 자동 닫기
+Playwright + Gemini 하이브리드 방식
+- Playwright: 빠른 페이지 로딩 + HTML 추출
+- Gemini: 텍스트에서 구조화된 데이터 파싱
 
-주의: Python 3.11+ 필수
-환경변수: GOOGLE_API_KEY (2025-05 이후 GEMINI_API_KEY 대신 사용)
+이전 browser-use 방식 대비 장점:
+- WSL 환경에서도 2-3초 내 로딩
+- AI가 브라우저를 조작하지 않아 안정적
+- Gemini API 비용 절감 (스크린샷 대신 텍스트)
+
+환경변수: GOOGLE_API_KEY 또는 GEMINI_API_KEY
 """
 
 import asyncio
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -37,10 +41,9 @@ class ScrapedProduct:
 
 
 class AlibabaScraper:
-    """1688.com 상품 정보 추출기
+    """1688.com 상품 정보 추출기 (Playwright + Gemini 하이브리드)
 
-    Browser-Use 라이브러리를 사용하여 AI 에이전트가
-    웹페이지를 탐색하고 정보를 추출합니다.
+    브라우징은 Playwright(기계)가 하고, 독해는 Gemini(AI)가 합니다.
 
     Example:
         scraper = AlibabaScraper()
@@ -48,24 +51,36 @@ class AlibabaScraper:
         print(product.price_cny, product.weight_kg)
     """
 
+    # Stealth User-Agent (봇 탐지 우회)
+    USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+
     def __init__(self, api_key: Optional[str] = None, headless: bool = True):
         """
         Args:
             api_key: Google API 키 (없으면 환경변수에서 로드)
             headless: True면 브라우저 창 안 보임 (백그라운드 실행)
         """
-        # GOOGLE_API_KEY 우선, 없으면 GEMINI_API_KEY (하위 호환)
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY가 필요합니다. .env 파일을 확인하세요.")
 
-        # browser-use가 GOOGLE_API_KEY 환경변수를 찾으므로 설정
-        if not os.getenv("GOOGLE_API_KEY"):
-            os.environ["GOOGLE_API_KEY"] = self.api_key
-
         self.headless = headless
-        self._browser = None
-        self._agent = None
+        self._llm = None
+
+    def _get_llm(self):
+        """Gemini LLM 인스턴스 (lazy loading)"""
+        if self._llm is None:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            self._llm = ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=self.api_key,
+                temperature=0,  # 정확한 추출을 위해 0
+            )
+        return self._llm
 
     async def scrape(self, url: str) -> ScrapedProduct:
         """1688 상품 페이지에서 정보 추출
@@ -77,123 +92,196 @@ class AlibabaScraper:
             ScrapedProduct: 추출된 상품 정보
         """
         try:
-            from browser_use import Agent, Browser, ChatGoogle
+            from playwright.async_api import async_playwright
+            from bs4 import BeautifulSoup
         except ImportError:
             raise ImportError(
-                "browser-use 패키지가 필요합니다.\n"
-                "설치: pip install browser-use\n"
-                "주의: Python 3.11+ 필수"
+                "필수 패키지가 없습니다.\n"
+                "설치: pip install playwright beautifulsoup4\n"
+                "브라우저 설치: playwright install chromium"
             )
 
-        # browser-use 내장 ChatGoogle 사용
-        llm = ChatGoogle(model="gemini-2.0-flash")
+        text_content = ""
+        image_url = None
 
-        # 추출 지시문 (프롬프트) - Gemini 피드백 반영 v2
-        extraction_prompt = f"""
-당신은 1688.com 소싱 리스크 관리자입니다. **보수적으로** 데이터를 추출하세요.
+        async with async_playwright() as p:
+            # 1. 브라우저 실행 (Stealth 모드)
+            browser = await p.chromium.launch(
+                headless=self.headless,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            )
 
-[필수 작업]
-1. URL 이동: {url}
-2. **팝업 대응**: 로그인/쿠폰 팝업이 뜨면 닫기 버튼(X)을 시도하되, 안 닫히면 배경의 흐릿한 텍스트라도 읽으세요.
-3. 데이터 추출 후 JSON으로 반환하세요.
+            context = await browser.new_context(
+                user_agent=self.USER_AGENT,
+                viewport={"width": 1920, "height": 1080},
+                locale="zh-CN",
+            )
 
-[추출 규칙 - 매우 중요!]
-- **price_cny**: 가격 범위(예: ¥25-35)가 있으면 **무조건 큰 값(35)**을 선택하세요. (방어적 계산)
-- **weight_kg/size**: '사양(Specification)' 탭이나 표를 먼저 찾고, 없으면 본문 이미지 근처 텍스트에서 'kg', 'cm', 'mm' 단위를 찾으세요.
-- **정보 없음**: 무게나 사이즈를 도저히 못 찾겠으면 `null`로 두세요. (임의로 지어내지 마세요!)
+            page = await context.new_page()
+
+            # 2. 리소스 차단 (속도 향상) - 이미지/폰트/스타일시트 제외
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,eot}",
+                lambda route: route.abort()
+            )
+
+            try:
+                # 3. 페이지 이동 (30초 타임아웃)
+                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+
+                # 잠시 대기 (동적 콘텐츠 로딩)
+                await asyncio.sleep(2)
+
+                # 4. 로그인 팝업 감지 및 처리
+                try:
+                    # 일반적인 닫기 버튼 클릭 시도
+                    close_btn = page.locator("[class*='close'], [class*='Close'], .baxia-dialog-close")
+                    if await close_btn.count() > 0:
+                        await close_btn.first.click()
+                        await asyncio.sleep(0.5)
+                except Exception:
+                    pass  # 팝업 없으면 무시
+
+                # 5. 페이지 제목으로 로그인 페이지 감지
+                title = await page.title()
+                if "登录" in title or "login" in title.lower():
+                    raise Exception("로그인 페이지로 리다이렉트됨. VPN이나 쿠키가 필요할 수 있습니다.")
+
+                # 6. HTML 추출
+                html_content = await page.content()
+
+                # 7. 대표 이미지 URL 추출 시도
+                try:
+                    img_element = page.locator("img.detail-gallery-img, img[class*='main-image'], .detail-gallery img").first
+                    if await img_element.count() > 0:
+                        image_url = await img_element.get_attribute("src")
+                except Exception:
+                    pass
+
+                # 8. BeautifulSoup으로 텍스트 추출
+                soup = BeautifulSoup(html_content, "html.parser")
+
+                # 스크립트/스타일 제거
+                for tag in soup(["script", "style", "noscript", "iframe"]):
+                    tag.decompose()
+
+                # 주요 영역 텍스트 추출
+                text_parts = []
+
+                # 상품 제목
+                title_elem = soup.select_one("h1, .d-title, .title-text, [class*='title']")
+                if title_elem:
+                    text_parts.append(f"[상품명] {title_elem.get_text(strip=True)}")
+
+                # 가격 영역
+                price_elem = soup.select_one(".price, [class*='price'], .d-price")
+                if price_elem:
+                    text_parts.append(f"[가격] {price_elem.get_text(strip=True)}")
+
+                # 속성/스펙 영역
+                attr_elems = soup.select(".offer-attr-list, .mod-detail-attributes, [class*='attribute'], [class*='spec']")
+                for elem in attr_elems:
+                    text_parts.append(f"[속성] {elem.get_text(separator=' | ', strip=True)}")
+
+                # 전체 본문 (fallback)
+                body_text = soup.get_text(separator="\n", strip=True)
+
+                # 텍스트 조합 (앞부분 1만자 제한 - 토큰 절약)
+                if text_parts:
+                    text_content = "\n".join(text_parts) + "\n\n[본문 일부]\n" + body_text[:5000]
+                else:
+                    text_content = body_text[:10000]
+
+            except Exception as e:
+                await browser.close()
+                return ScrapedProduct(
+                    url=url,
+                    name=f"페이지 로딩 실패: {str(e)}",
+                    price_cny=0.0,
+                )
+
+            await browser.close()
+
+        # 9. Gemini로 텍스트 파싱
+        return await self._parse_with_ai(text_content, url, image_url)
+
+    async def _parse_with_ai(self, text: str, url: str, image_url: Optional[str] = None) -> ScrapedProduct:
+        """Gemini를 사용하여 텍스트에서 상품 정보 추출"""
+
+        prompt = f"""당신은 1688.com 상품 데이터 추출 전문가입니다.
+아래 텍스트는 1688 상품 페이지에서 추출한 내용입니다.
+
+[중요 규칙]
+1. 가격(price_cny): 범위가 있으면 **최대값** 선택 (예: ¥25-35 → 35)
+2. 무게(weight_kg): "重量", "净重", "毛重" 키워드 찾기. g단위면 kg로 변환(÷1000)
+3. 사이즈: "尺寸", "包装尺寸", "规格" 키워드 찾기. mm단위면 cm로 변환(÷10)
+4. 정보 없음: 찾을 수 없으면 null (임의 생성 금지!)
+5. MOQ: "起批", "最小起订" 등에서 찾기. 없으면 1
 
 [추출할 정보]
 - product_name: 상품명 (중국어 그대로)
-- price_cny: 가격 (위안, 숫자만. **범위면 최대값!**)
-- image_url: 대표 이미지 URL
-- moq: 최소 주문량 (기본 1)
-- weight_kg: 무게 (kg 단위. 없으면 null)
-- length_cm: 포장 가로 (cm. 없으면 null)
-- width_cm: 포장 세로 (cm. 없으면 null)
-- height_cm: 포장 높이 (cm. 없으면 null)
-- raw_specs: 스펙 테이블 전체 (key-value 딕셔너리)
+- price_cny: 가격 (숫자만, 범위면 최대값)
+- moq: 최소 주문량
+- weight_kg: 무게 (kg)
+- length_cm: 포장 가로 (cm)
+- width_cm: 포장 세로 (cm)
+- height_cm: 포장 높이 (cm)
+- raw_specs: 기타 스펙 (dict)
 
-[힌트]
-- 무게 키워드: "重量", "净重", "毛重", "整体重量"
-- 사이즈 키워드: "尺寸", "包装尺寸", "规格", "产品尺寸"
-- 스펙 테이블이 없으면, 상품 제목이나 본문에서 "80cm", "2kg" 같은 숫자 패턴을 찾아 추정하세요.
-- 단위 변환: g → kg (÷1000), mm → cm (÷10)
+[페이지 텍스트]
+{text}
 
 [출력 형식]
-반드시 아래 JSON 형식으로만 응답하세요:
+JSON만 출력하세요 (설명 없이):
 ```json
 {{
     "product_name": "...",
     "price_cny": 45.0,
-    "image_url": "...",
     "moq": 50,
     "weight_kg": 2.5,
     "length_cm": 80,
     "width_cm": 20,
     "height_cm": 15,
-    "raw_specs": {{"재질": "알루미늄", ...}}
+    "raw_specs": {{"키": "값"}}
 }}
-```
-"""
-
-        # Browser 설정 (v0.11+ API - 직접 파라미터 전달)
-        # 로컬 브라우저 사용 (클라우드 서비스 비활성화)
-        browser = Browser(
-            headless=self.headless,
-            disable_security=True,  # CORS 등 우회
-            use_cloud=False,  # 로컬 브라우저 사용 (클라우드 API 키 불필요)
-        )
-
-        # Browser-Use 에이전트 실행
-        agent = Agent(
-            task=extraction_prompt,
-            llm=llm,
-            browser=browser,
-        )
+```"""
 
         try:
-            result = await agent.run()
-            return self._parse_result(url, result)
-        except Exception as e:
-            # 실패 시 기본값 반환
+            llm = self._get_llm()
+            response = await asyncio.to_thread(llm.invoke, prompt)
+            result_text = response.content
+
+            # JSON 추출
+            json_match = re.search(r'```json\s*(.*?)\s*```', result_text, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(1))
+            else:
+                # JSON 블록 없이 바로 반환된 경우
+                data = json.loads(result_text)
+
             return ScrapedProduct(
                 url=url,
-                name=f"추출 실패: {str(e)}",
-                price_cny=0.0,
+                name=data.get("product_name", "Unknown"),
+                price_cny=float(data.get("price_cny", 0)),
+                image_url=image_url or data.get("image_url"),
+                weight_kg=data.get("weight_kg"),
+                length_cm=data.get("length_cm"),
+                width_cm=data.get("width_cm"),
+                height_cm=data.get("height_cm"),
+                moq=int(data.get("moq", 1)),
+                raw_specs=data.get("raw_specs"),
             )
 
-    def _parse_result(self, url: str, result: Any) -> ScrapedProduct:
-        """에이전트 결과를 ScrapedProduct로 변환"""
-        import json
-
-        # 결과에서 JSON 추출
-        result_str = str(result)
-        json_match = re.search(r'```json\s*(.*?)\s*```', result_str, re.DOTALL)
-
-        if json_match:
-            try:
-                data = json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                data = {}
-        else:
-            # JSON 블록 없이 바로 반환된 경우
-            try:
-                data = json.loads(result_str)
-            except json.JSONDecodeError:
-                data = {}
-
-        return ScrapedProduct(
-            url=url,
-            name=data.get("product_name", "Unknown"),
-            price_cny=float(data.get("price_cny", 0)),
-            image_url=data.get("image_url"),
-            weight_kg=data.get("weight_kg"),
-            length_cm=data.get("length_cm"),
-            width_cm=data.get("width_cm"),
-            height_cm=data.get("height_cm"),
-            moq=int(data.get("moq", 1)),
-            raw_specs=data.get("raw_specs"),
-        )
+        except Exception as e:
+            return ScrapedProduct(
+                url=url,
+                name=f"AI 파싱 실패: {str(e)}",
+                price_cny=0.0,
+            )
 
     def to_domain_product(self, scraped: ScrapedProduct, category: str = "기타") -> "Product":
         """ScrapedProduct를 도메인 모델 Product로 변환

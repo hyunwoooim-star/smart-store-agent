@@ -30,11 +30,12 @@ aiohttp>=3.9.0
 streamlit>=1.30.0     # 웹 대시보드
 
 # ===========================================
-# Browser Automation - AI 브라우저 제어 (Phase 3)
+# Browser Automation - Playwright + Gemini (Phase 3.5)
 # ===========================================
-playwright>=1.40.0    # 브라우저 엔진
-browser-use>=0.1.0    # AI 브라우저 자동화 (Python 3.11+ 필수)
+playwright>=1.40.0    # 브라우저 엔진 (페이지 로딩)
+beautifulsoup4>=4.12.0  # HTML 파싱
 langchain-google-genai>=2.0.0  # Gemini + LangChain 연동
+# browser-use 제거 (WSL 타임아웃 이슈)
 
 # ===========================================
 # 유틸리티

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_browser.py - 1688 스크래퍼 테스트 스크립트
+test_browser.py - 1688 스크래퍼 테스트 스크립트 (Phase 3.5 - Playwright + Gemini)
 
 사용법:
     # Mock 테스트 (API 키 없이)
@@ -122,16 +122,15 @@ async def test_real_scraper(url: str, headless: bool = True):
         console.print("2. 또는 --mock 옵션으로 테스트")
         return False
 
-    console.print("\n[yellow]⏳ AI 에이전트가 페이지를 분석 중... (30초~1분 소요)[/yellow]")
+    console.print("\n[yellow]⏳ Playwright로 페이지 로딩 + Gemini 파싱 중... (5~10초 소요)[/yellow]")
 
     try:
         scraped = await scraper.scrape(url)
     except ImportError as e:
         console.print(f"[red]❌ 패키지 오류: {e}[/red]")
         console.print("\n[yellow]💡 해결 방법:[/yellow]")
-        console.print("1. Python 3.11+ 확인: python --version")
-        console.print("2. 패키지 설치: pip install browser-use langchain-google-genai playwright")
-        console.print("3. Playwright 브라우저 설치: playwright install")
+        console.print("1. 패키지 설치: pip install playwright beautifulsoup4 langchain-google-genai")
+        console.print("2. Playwright 브라우저 설치: playwright install chromium")
         return False
 
     # 결과 표시
@@ -185,8 +184,8 @@ def main():
 
     # 배너
     console.print(Panel.fit(
-        "[bold blue]Smart Store Agent v3.3[/bold blue]\n"
-        "[cyan]1688 스크래퍼 테스트[/cyan]",
+        "[bold blue]Smart Store Agent v3.5[/bold blue]\n"
+        "[cyan]1688 스크래퍼 테스트 (Playwright + Gemini)[/cyan]",
         border_style="blue"
     ))
 
