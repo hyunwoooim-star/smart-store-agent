@@ -78,9 +78,10 @@ class LandedCostCalculator:
         # 1. 상품 원가
         product_cost = int(product.price_cny * cfg.exchange_rate)
 
-        # 2. 관세 (카테고리별)
-        tariff_rate = cfg.tariff_rates.get(product.category, 0.10)
-        tariff = int(product_cost * tariff_rate)
+        # 2. 중국 내 비용 (구매대행 필수 비용)
+        china_shipping = cfg.china_domestic_shipping  # 중국 내 배송비
+        china_total = product_cost + china_shipping
+        agency_fee = int(china_total * cfg.agency_fee_rate)  # 구매대행 수수료 10%
 
         # 3. 무게 계산
         volume_weight = self.calculate_volume_weight(product)
@@ -90,16 +91,19 @@ class LandedCostCalculator:
         if shipping_method == "항공":
             shipping_international = int(billable_weight * cfg.shipping_rate_air)
         else:
-            # 해운: CBM 기반 계산
+            # 해운: CBM 기반 계산 (1 CBM당 75,000원, 최소 6,000원)
             cbm = self.calculate_cbm(product)
             shipping_international = max(
                 int(cbm * cfg.cbm_rate),
                 cfg.min_shipping_fee
             )
 
-        # 5. 부가세 (과세가격 = 물품가격 + 관세 + 운임)
-        taxable = product_cost + tariff + shipping_international
-        vat = int(taxable * cfg.vat_rate)
+        # 5. 관부가세 (간이통관 기준 약 20%)
+        # 과세가격 = 중국내비용 + 해운배송비
+        taxable = china_total + shipping_international
+        tariff_and_vat = int(taxable * cfg.simple_tariff_rate)  # 관부가세 통합
+        tariff = int(tariff_and_vat * 0.4)  # 관세 약 40%
+        vat = tariff_and_vat - tariff       # 부가세 약 60%
 
         # 6. 마켓 수수료
         market_config = MARKET_FEES.get(market.value, MARKET_FEES["naver"])
@@ -113,6 +117,8 @@ class LandedCostCalculator:
         # 8. 비용 집계
         breakdown = CostBreakdown(
             product_cost=product_cost,
+            china_shipping=china_shipping,
+            agency_fee=agency_fee,
             tariff=tariff,
             vat=vat,
             shipping_international=shipping_international,
@@ -125,6 +131,8 @@ class LandedCostCalculator:
 
         total_cost = (
             product_cost +
+            china_shipping +
+            agency_fee +
             tariff +
             vat +
             shipping_international +
@@ -149,15 +157,18 @@ class LandedCostCalculator:
 
         is_danger = risk_level == RiskLevel.DANGER
 
-        # 11. 손익분기점 계산
+        # 11. 손익분기점 계산 (구매대행 비용 포함)
+        fixed_costs = (
+            product_cost + china_shipping + agency_fee +
+            tariff + vat + shipping_international +
+            cfg.domestic_shipping + packaging
+        )
         breakeven_price = self._calculate_breakeven(
-            product_cost, tariff, vat, shipping_international,
-            cfg.domestic_shipping, packaging, market, include_ad_cost
+            fixed_costs, market, include_ad_cost
         )
 
         target_margin_price = self._calculate_target_margin(
-            product_cost, tariff, vat, shipping_international,
-            cfg.domestic_shipping, packaging, market, 0.30, include_ad_cost
+            fixed_costs, market, 0.30, include_ad_cost
         )
 
         # 12. 추천 메시지
@@ -182,12 +193,9 @@ class LandedCostCalculator:
         )
 
     def _calculate_breakeven(
-        self, product_cost, tariff, vat, shipping_int, shipping_dom,
-        packaging, market: MarketType, include_ad: bool
+        self, fixed_costs: int, market: MarketType, include_ad: bool
     ) -> int:
         """손익분기 판매가 = 고정비 / (1 - 변동비율)"""
-        fixed = product_cost + tariff + vat + shipping_int + shipping_dom + packaging
-
         market_fee = MARKET_FEES.get(market.value, MARKET_FEES["naver"]).fee_rate
         variable_rate = market_fee + self.config.return_allowance_rate
         if include_ad:
@@ -196,16 +204,13 @@ class LandedCostCalculator:
         if variable_rate >= 1.0:
             return 0
 
-        breakeven = fixed / (1 - variable_rate)
+        breakeven = fixed_costs / (1 - variable_rate)
         return int(math.ceil(breakeven / 1000) * 1000)
 
     def _calculate_target_margin(
-        self, product_cost, tariff, vat, shipping_int, shipping_dom,
-        packaging, market: MarketType, target_margin: float, include_ad: bool
+        self, fixed_costs: int, market: MarketType, target_margin: float, include_ad: bool
     ) -> int:
         """목표 마진 달성 판매가"""
-        fixed = product_cost + tariff + vat + shipping_int + shipping_dom + packaging
-
         market_fee = MARKET_FEES.get(market.value, MARKET_FEES["naver"]).fee_rate
         variable_rate = market_fee + self.config.return_allowance_rate
         if include_ad:
@@ -215,7 +220,7 @@ class LandedCostCalculator:
         if denominator <= 0:
             return 0
 
-        target_price = fixed / denominator
+        target_price = fixed_costs / denominator
         return int(math.ceil(target_price / 1000) * 1000)
 
     def _get_recommendation(

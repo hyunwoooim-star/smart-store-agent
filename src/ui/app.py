@@ -260,22 +260,25 @@ if st.button("🔍 리스크 분석", type="primary", use_container_width=True):
 
         bd = result.breakdown
         with cost_col1:
-            st.markdown("**기본 비용**")
+            st.markdown("**🇨🇳 중국 내 비용**")
             st.write(f"- 상품 원가: {bd.product_cost:,}원")
+            st.write(f"- 중국 내 배송비: {bd.china_shipping:,}원")
+            st.write(f"- 구매대행 수수료 (10%): {bd.agency_fee:,}원")
+            st.markdown("**🚢 수입 비용**")
             st.write(f"- 관세: {bd.tariff:,}원")
             st.write(f"- 부가세: {bd.vat:,}원")
             st.write(f"- 해외 배송비: {bd.shipping_international:,}원")
             st.write(f"- 국내 택배비: {bd.shipping_domestic:,}원")
 
         with cost_col2:
-            st.markdown("**판매/운영 비용**")
+            st.markdown("**🛒 판매/운영 비용**")
             market_info = MARKET_FEES[selected_market.value]
             st.write(f"- {market_info.name} 수수료: {bd.platform_fee:,}원")
-            st.write(f"- 반품 충당금: {bd.return_allowance:,}원")
-            st.write(f"- 광고비: {bd.ad_cost:,}원")
-            st.write(f"- 포장비: {bd.packaging:,}원")
+            st.write(f"- 반품 충당금 (5%): {bd.return_allowance:,}원")
+            st.write(f"- 광고비 (10%): {bd.ad_cost:,}원")
+            st.write(f"- 포장/검수비: {bd.packaging:,}원")
             st.markdown("---")
-            st.write(f"**총 비용: {result.total_cost:,}원**")
+            st.write(f"**💰 총 비용: {result.total_cost:,}원**")
 
     # 무게 분석
     with st.expander("⚖️ 무게 분석"):

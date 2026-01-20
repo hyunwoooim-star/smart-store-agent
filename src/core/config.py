@@ -38,12 +38,16 @@ class AppConfig:
     vat_rate: float = 0.10                  # 부가세 10%
     simple_tariff_rate: float = 0.20        # 간이통관 관부가세 약 20%
 
-    # 배송비
+    # 구매대행 비용 (중국 계좌 없는 사용자용)
+    agency_fee_rate: float = 0.10           # 구매대행 수수료 10%
+    china_domestic_shipping: int = 3000     # 중국 내 배송비
+
+    # 해외 배송비
     shipping_rate_air: int = 8000           # 항공 kg당
     shipping_rate_sea: int = 3000           # 해운 kg당
-    cbm_rate: int = 50000                   # CBM당 해운비 (m³)
-    min_shipping_fee: int = 5000            # 최소 배송비
-    domestic_shipping: int = 3000           # 국내 택배비
+    cbm_rate: int = 75000                   # CBM당 해운비 (m³) - Gemini 권장
+    min_shipping_fee: int = 6000            # 최소 해운비
+    domestic_shipping: int = 3500           # 국내 택배비
 
     # 부피무게 계수
     volume_weight_divisor: int = 6000       # 항공 표준

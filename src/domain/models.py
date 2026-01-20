@@ -42,6 +42,8 @@ class Product:
 class CostBreakdown:
     """비용 세부 내역"""
     product_cost: int               # 상품 원가 (원)
+    china_shipping: int             # 중국 내 배송비 (신규)
+    agency_fee: int                 # 구매대행 수수료 (신규)
     tariff: int                     # 관세
     vat: int                        # 부가세
     shipping_international: int     # 해외 배송비
