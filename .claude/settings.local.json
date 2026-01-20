@@ -10,7 +10,10 @@
       "Bash(py -3:*)",
       "Bash(\"C:\\\\Users\\\\임현우\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\python3.exe\" --version)",
       "Bash(git checkout:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo create:*)"
     ]
   }
 }
