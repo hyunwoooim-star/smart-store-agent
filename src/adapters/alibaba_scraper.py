@@ -7,6 +7,7 @@ Browser-Use + Gemini를 이용한 AI 기반 스크래핑
 - 로그인 팝업 자동 닫기
 
 주의: Python 3.11+ 필수
+환경변수: GOOGLE_API_KEY (2025-05 이후 GEMINI_API_KEY 대신 사용)
 """
 
 import asyncio
@@ -50,12 +51,17 @@ class AlibabaScraper:
     def __init__(self, api_key: Optional[str] = None, headless: bool = True):
         """
         Args:
-            api_key: Gemini API 키 (없으면 환경변수에서 로드)
+            api_key: Google API 키 (없으면 환경변수에서 로드)
             headless: True면 브라우저 창 안 보임 (백그라운드 실행)
         """
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        # GOOGLE_API_KEY 우선, 없으면 GEMINI_API_KEY (하위 호환)
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY가 필요합니다. .env 파일을 확인하세요.")
+            raise ValueError("GOOGLE_API_KEY가 필요합니다. .env 파일을 확인하세요.")
+
+        # browser-use가 GOOGLE_API_KEY 환경변수를 찾으므로 설정
+        if not os.getenv("GOOGLE_API_KEY"):
+            os.environ["GOOGLE_API_KEY"] = self.api_key
 
         self.headless = headless
         self._browser = None
@@ -71,21 +77,16 @@ class AlibabaScraper:
             ScrapedProduct: 추출된 상품 정보
         """
         try:
-            from browser_use import Agent
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            from browser_use import Agent, Browser, ChatGoogle
         except ImportError:
             raise ImportError(
-                "browser-use와 langchain-google-genai 패키지가 필요합니다.\n"
-                "설치: pip install browser-use langchain-google-genai\n"
+                "browser-use 패키지가 필요합니다.\n"
+                "설치: pip install browser-use\n"
                 "주의: Python 3.11+ 필수"
             )
 
-        # Gemini LLM 설정
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=self.api_key,
-            temperature=0.1,  # 정확한 추출을 위해 낮게
-        )
+        # browser-use 내장 ChatGoogle 사용
+        llm = ChatGoogle(model="gemini-2.0-flash")
 
         # 추출 지시문 (프롬프트) - Gemini 피드백 반영 v2
         extraction_prompt = f"""
@@ -135,17 +136,19 @@ class AlibabaScraper:
 ```
 """
 
+        # Browser 설정 (v0.11+ API - 직접 파라미터 전달)
+        # 로컬 브라우저 사용 (클라우드 서비스 비활성화)
+        browser = Browser(
+            headless=self.headless,
+            disable_security=True,  # CORS 등 우회
+            use_cloud=False,  # 로컬 브라우저 사용 (클라우드 API 키 불필요)
+        )
+
         # Browser-Use 에이전트 실행
         agent = Agent(
             task=extraction_prompt,
             llm=llm,
-            browser_config={
-                "headless": self.headless,
-                "args": [
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                ],
-            }
+            browser=browser,
         )
 
         try:
