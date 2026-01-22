@@ -596,6 +596,41 @@ with tab4:
                         for i, item in enumerate(result.sample_check_points, 1):
                             st.checkbox(f"{i}. {item}", key=f"check_{i}", value=False)
 
+                    # 엑셀 다운로드 (v3.5.1 Quick Win - Gemini 피드백)
+                    st.markdown("---")
+                    try:
+                        import pandas as pd
+                        from io import BytesIO
+
+                        # 데이터 준비
+                        export_data = {
+                            "항목": ["판정", "한줄요약", "치명적결함", "공장협의", "마케팅소구점", "샘플체크"],
+                            "내용": [
+                                result.verdict.value,
+                                result.summary_one_line,
+                                "\n".join([f"[{d.frequency}] {d.issue}" for d in result.critical_defects]),
+                                "\n".join(result.improvement_requests),
+                                "\n".join(result.marketing_hooks),
+                                "\n".join(result.sample_check_points),
+                            ]
+                        }
+                        df = pd.DataFrame(export_data)
+
+                        # 엑셀 버퍼 생성
+                        buffer = BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False, sheet_name='리뷰분석')
+                        buffer.seek(0)
+
+                        st.download_button(
+                            label="📥 엑셀로 다운로드",
+                            data=buffer,
+                            file_name=f"review_analysis_{review_category}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except ImportError:
+                        st.info("💡 엑셀 다운로드를 위해 `pip install pandas openpyxl` 실행 필요")
+
                     # 상세 보기
                     with st.expander("📋 전체 분석 리포트"):
                         st.code(analyzer.format_report(result), language="text")
@@ -604,7 +639,16 @@ with tab4:
                     st.error(f"패키지 오류: {e}")
                     st.code("pip install google-generativeai", language="bash")
                 except Exception as e:
-                    st.error(f"분석 실패: {str(e)}")
+                    # 에러 유형별 핸들링 (Gemini 피드백 반영)
+                    msg = str(e).lower()
+                    if "quota" in msg or "429" in msg or "rate" in msg:
+                        st.error("💡 API 쿼터 초과! 잠시 후 또는 내일 다시 시도하세요.")
+                    elif "timeout" in msg or "timed out" in msg:
+                        st.warning("⏱️ 응답이 늦네요. 잠시 후 다시 시도해주세요.")
+                    elif "api_key" in msg or "invalid" in msg:
+                        st.error("🔑 API 키가 잘못되었습니다. .env 파일을 확인하세요.")
+                    else:
+                        st.error(f"❌ 분석 실패: {str(e)}")
 
     # 사용법 가이드
     with st.expander("💡 사용법 가이드"):
