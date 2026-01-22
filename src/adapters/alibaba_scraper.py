@@ -1,27 +1,26 @@
 """
-alibaba_scraper.py - 1688 상품 정보 자동 추출기 (Phase 3.5 - Option B)
+alibaba_scraper.py - 1688 상품 정보 추출기 (Apify API 버전)
 
-Playwright + Gemini 하이브리드 방식
-- Playwright: 빠른 페이지 로딩 + HTML 추출
-- Gemini: 텍스트에서 구조화된 데이터 파싱
+Phase 3.5 Pivot: Playwright → Apify SaaS 전환
+- WSL 브라우저 이슈 영구 해결
+- Anti-bot 우회는 Apify가 처리
+- 로컬 리소스 0% 사용
 
-이전 browser-use 방식 대비 장점:
-- WSL 환경에서도 2-3초 내 로딩
-- AI가 브라우저를 조작하지 않아 안정적
-- Gemini API 비용 절감 (스크린샷 대신 텍스트)
+환경변수:
+- APIFY_API_TOKEN: Apify 계정의 Personal API Token
+- APIFY_ACTOR_ID: (선택) 사용할 Actor ID
 
-환경변수: GOOGLE_API_KEY 또는 GEMINI_API_KEY
+Apify 가입: https://console.apify.com/sign-up
+API Token: Settings > Integrations > Personal API tokens
 """
 
 import asyncio
-import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
-# 환경변수 로드
 load_dotenv()
 
 
@@ -41,9 +40,10 @@ class ScrapedProduct:
 
 
 class AlibabaScraper:
-    """1688.com 상품 정보 추출기 (Playwright + Gemini 하이브리드)
+    """Apify Actor를 활용한 1688 스크래퍼
 
-    브라우징은 Playwright(기계)가 하고, 독해는 Gemini(AI)가 합니다.
+    브라우저 없이 Apify 클라우드에서 스크래핑.
+    WSL 환경에서도 3초 내 응답.
 
     Example:
         scraper = AlibabaScraper()
@@ -51,36 +51,44 @@ class AlibabaScraper:
         print(product.price_cny, product.weight_kg)
     """
 
-    # Stealth User-Agent (봇 탐지 우회)
-    USER_AGENT = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+    # 기본 Actor ID (1688 전용 스크래퍼들)
+    # 실제 사용 시 Apify Store에서 검색하여 적합한 Actor 선택
+    DEFAULT_ACTORS = [
+        "ecomscrape/1688-product-details-page-scraper",
+        "songd/1688-search-scraper",
+        "nice_dev/1688-product-scraper",
+    ]
 
-    def __init__(self, api_key: Optional[str] = None, headless: bool = True):
+    def __init__(self, api_token: Optional[str] = None, actor_id: Optional[str] = None):
         """
         Args:
-            api_key: Google API 키 (없으면 환경변수에서 로드)
-            headless: True면 브라우저 창 안 보임 (백그라운드 실행)
+            api_token: Apify API 토큰 (없으면 환경변수에서 로드)
+            actor_id: 사용할 Actor ID (없으면 환경변수 또는 기본값)
         """
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY가 필요합니다. .env 파일을 확인하세요.")
-
-        self.headless = headless
-        self._llm = None
-
-    def _get_llm(self):
-        """Gemini LLM 인스턴스 (lazy loading)"""
-        if self._llm is None:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            self._llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",  # 2.0보다 할당량 안정적
-                google_api_key=self.api_key,
-                temperature=0,  # 정확한 추출을 위해 0
+        self.api_token = api_token or os.getenv("APIFY_API_TOKEN")
+        if not self.api_token:
+            raise ValueError(
+                "APIFY_API_TOKEN이 필요합니다.\n"
+                "1. https://console.apify.com/sign-up 가입\n"
+                "2. Settings > Integrations에서 API Token 복사\n"
+                "3. .env 파일에 APIFY_API_TOKEN=apify_api_xxx 추가"
             )
-        return self._llm
+
+        self.actor_id = actor_id or os.getenv("APIFY_ACTOR_ID", self.DEFAULT_ACTORS[0])
+        self._client = None
+
+    def _get_client(self):
+        """Apify 클라이언트 (lazy loading)"""
+        if self._client is None:
+            try:
+                from apify_client import ApifyClient
+                self._client = ApifyClient(self.api_token)
+            except ImportError:
+                raise ImportError(
+                    "apify-client 패키지가 필요합니다.\n"
+                    "설치: pip install apify-client"
+                )
+        return self._client
 
     async def scrape(self, url: str) -> ScrapedProduct:
         """1688 상품 페이지에서 정보 추출
@@ -91,197 +99,285 @@ class AlibabaScraper:
         Returns:
             ScrapedProduct: 추출된 상품 정보
         """
+        print(f"🚀 [Apify] 스크래핑 시작: {url}")
+        print(f"📦 Actor: {self.actor_id}")
+
         try:
-            from playwright.async_api import async_playwright
-            from bs4 import BeautifulSoup
-        except ImportError:
-            raise ImportError(
-                "필수 패키지가 없습니다.\n"
-                "설치: pip install playwright beautifulsoup4\n"
-                "브라우저 설치: playwright install chromium"
+            client = self._get_client()
+
+            # Actor 입력 설정 (Actor마다 다를 수 있음)
+            run_input = self._build_input(url)
+
+            # Apify는 동기 라이브러리 → 비동기 래핑
+            run = await asyncio.to_thread(
+                client.actor(self.actor_id).call,
+                run_input=run_input,
+                timeout_secs=60,  # 최대 60초 대기
             )
 
-        text_content = ""
-        image_url = None
-
-        async with async_playwright() as p:
-            # 1. 브라우저 실행 (Stealth 모드)
-            browser = await p.chromium.launch(
-                headless=self.headless,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                ]
+            # 결과 데이터셋 가져오기
+            dataset = await asyncio.to_thread(
+                client.dataset(run["defaultDatasetId"]).list_items
             )
+            items = dataset.items
 
-            context = await browser.new_context(
-                user_agent=self.USER_AGENT,
-                viewport={"width": 1920, "height": 1080},
-                locale="zh-CN",
-            )
-
-            page = await context.new_page()
-
-            # 2. 리소스 차단 (속도 향상) - 이미지/폰트/스타일시트 제외
-            await page.route(
-                "**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,eot}",
-                lambda route: route.abort()
-            )
-
-            try:
-                # 3. 페이지 이동 (30초 타임아웃)
-                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-
-                # 잠시 대기 (동적 콘텐츠 로딩)
-                await asyncio.sleep(2)
-
-                # 4. 로그인 팝업 감지 및 처리
-                try:
-                    # 일반적인 닫기 버튼 클릭 시도
-                    close_btn = page.locator("[class*='close'], [class*='Close'], .baxia-dialog-close")
-                    if await close_btn.count() > 0:
-                        await close_btn.first.click()
-                        await asyncio.sleep(0.5)
-                except Exception:
-                    pass  # 팝업 없으면 무시
-
-                # 5. 페이지 제목으로 로그인 페이지 감지
-                title = await page.title()
-                if "登录" in title or "login" in title.lower():
-                    raise Exception("로그인 페이지로 리다이렉트됨. VPN이나 쿠키가 필요할 수 있습니다.")
-
-                # 6. HTML 추출
-                html_content = await page.content()
-
-                # 7. 대표 이미지 URL 추출 시도
-                try:
-                    img_element = page.locator("img.detail-gallery-img, img[class*='main-image'], .detail-gallery img").first
-                    if await img_element.count() > 0:
-                        image_url = await img_element.get_attribute("src")
-                except Exception:
-                    pass
-
-                # 8. BeautifulSoup으로 텍스트 추출
-                soup = BeautifulSoup(html_content, "html.parser")
-
-                # 스크립트/스타일 제거
-                for tag in soup(["script", "style", "noscript", "iframe"]):
-                    tag.decompose()
-
-                # 주요 영역 텍스트 추출
-                text_parts = []
-
-                # 상품 제목
-                title_elem = soup.select_one("h1, .d-title, .title-text, [class*='title']")
-                if title_elem:
-                    text_parts.append(f"[상품명] {title_elem.get_text(strip=True)}")
-
-                # 가격 영역
-                price_elem = soup.select_one(".price, [class*='price'], .d-price")
-                if price_elem:
-                    text_parts.append(f"[가격] {price_elem.get_text(strip=True)}")
-
-                # 속성/스펙 영역
-                attr_elems = soup.select(".offer-attr-list, .mod-detail-attributes, [class*='attribute'], [class*='spec']")
-                for elem in attr_elems:
-                    text_parts.append(f"[속성] {elem.get_text(separator=' | ', strip=True)}")
-
-                # 전체 본문 (fallback)
-                body_text = soup.get_text(separator="\n", strip=True)
-
-                # 텍스트 조합 (앞부분 1만자 제한 - 토큰 절약)
-                if text_parts:
-                    text_content = "\n".join(text_parts) + "\n\n[본문 일부]\n" + body_text[:5000]
-                else:
-                    text_content = body_text[:10000]
-
-            except Exception as e:
-                await browser.close()
+            if not items:
+                print("⚠️ [Apify] 반환 데이터 없음")
                 return ScrapedProduct(
                     url=url,
-                    name=f"페이지 로딩 실패: {str(e)}",
+                    name="데이터 없음: Actor 반환값 비어있음",
                     price_cny=0.0,
                 )
 
-            await browser.close()
+            raw_data = items[0]  # 첫 번째 결과 사용
+            print(f"✅ [Apify] 데이터 수신 완료")
 
-        # 9. Gemini로 텍스트 파싱
-        return await self._parse_with_ai(text_content, url, image_url)
-
-    async def _parse_with_ai(self, text: str, url: str, image_url: Optional[str] = None) -> ScrapedProduct:
-        """Gemini를 사용하여 텍스트에서 상품 정보 추출"""
-
-        prompt = f"""당신은 1688.com 상품 데이터 추출 전문가입니다.
-아래 텍스트는 1688 상품 페이지에서 추출한 내용입니다.
-
-[중요 규칙]
-1. 가격(price_cny): 범위가 있으면 **최대값** 선택 (예: ¥25-35 → 35)
-2. 무게(weight_kg): "重量", "净重", "毛重" 키워드 찾기. g단위면 kg로 변환(÷1000)
-3. 사이즈: "尺寸", "包装尺寸", "规格" 키워드 찾기. mm단위면 cm로 변환(÷10)
-4. 정보 없음: 찾을 수 없으면 null (임의 생성 금지!)
-5. MOQ: "起批", "最小起订" 등에서 찾기. 없으면 1
-
-[추출할 정보]
-- product_name: 상품명 (중국어 그대로)
-- price_cny: 가격 (숫자만, 범위면 최대값)
-- moq: 최소 주문량
-- weight_kg: 무게 (kg)
-- length_cm: 포장 가로 (cm)
-- width_cm: 포장 세로 (cm)
-- height_cm: 포장 높이 (cm)
-- raw_specs: 기타 스펙 (dict)
-
-[페이지 텍스트]
-{text}
-
-[출력 형식]
-JSON만 출력하세요 (설명 없이):
-```json
-{{
-    "product_name": "...",
-    "price_cny": 45.0,
-    "moq": 50,
-    "weight_kg": 2.5,
-    "length_cm": 80,
-    "width_cm": 20,
-    "height_cm": 15,
-    "raw_specs": {{"키": "값"}}
-}}
-```"""
-
-        try:
-            llm = self._get_llm()
-            response = await asyncio.to_thread(llm.invoke, prompt)
-            result_text = response.content
-
-            # JSON 추출
-            json_match = re.search(r'```json\s*(.*?)\s*```', result_text, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(1))
-            else:
-                # JSON 블록 없이 바로 반환된 경우
-                data = json.loads(result_text)
-
-            return ScrapedProduct(
-                url=url,
-                name=data.get("product_name", "Unknown"),
-                price_cny=float(data.get("price_cny", 0)),
-                image_url=image_url or data.get("image_url"),
-                weight_kg=data.get("weight_kg"),
-                length_cm=data.get("length_cm"),
-                width_cm=data.get("width_cm"),
-                height_cm=data.get("height_cm"),
-                moq=int(data.get("moq", 1)),
-                raw_specs=data.get("raw_specs"),
-            )
+            # 데이터 매핑
+            return self._parse_result(url, raw_data)
 
         except Exception as e:
+            print(f"❌ [Apify] 에러: {str(e)}")
             return ScrapedProduct(
                 url=url,
-                name=f"AI 파싱 실패: {str(e)}",
+                name=f"스크래핑 실패: {str(e)}",
                 price_cny=0.0,
             )
+
+    def _build_input(self, url: str) -> Dict[str, Any]:
+        """Actor 입력 구성 (Actor마다 필드명이 다를 수 있음)"""
+        # 일반적인 필드명들을 모두 포함
+        return {
+            "url": url,
+            "urls": [url],
+            "productUrl": url,
+            "startUrls": [{"url": url}],
+            "maxItems": 1,
+        }
+
+    def _parse_result(self, url: str, data: Dict[str, Any]) -> ScrapedProduct:
+        """Apify JSON 결과를 도메인 모델로 변환
+
+        [비즈니스 로직]
+        1. 가격 범위 → 최대값 선택 (방어적 계산)
+        2. 무게/사이즈 없으면 None (임의 생성 금지)
+        3. 상품명 중국어 그대로
+        """
+        # 1. 상품명 (여러 필드명 시도)
+        name = (
+            data.get("subject") or
+            data.get("title") or
+            data.get("name") or
+            data.get("productName") or
+            data.get("product_name") or
+            "Unknown Product"
+        )
+
+        # 2. 가격 파싱 (범위 → 최대값)
+        raw_price = (
+            data.get("price") or
+            data.get("currentPrice") or
+            data.get("priceRange") or
+            data.get("unitPrice") or
+            "0"
+        )
+        price_cny = self._extract_max_price(raw_price)
+
+        # 3. 이미지 URL
+        image_url = self._extract_image(data)
+
+        # 4. 스펙 정보 (무게, 사이즈)
+        raw_specs = self._extract_specs(data)
+        weight_kg = self._parse_weight(data, raw_specs)
+        dimensions = self._parse_dimensions(data, raw_specs)
+
+        # 5. MOQ
+        moq = self._extract_moq(data)
+
+        return ScrapedProduct(
+            url=url,
+            name=name,
+            price_cny=price_cny,
+            image_url=image_url,
+            weight_kg=weight_kg,
+            length_cm=dimensions.get("length"),
+            width_cm=dimensions.get("width"),
+            height_cm=dimensions.get("height"),
+            moq=moq,
+            raw_specs=raw_specs,
+        )
+
+    def _extract_max_price(self, price_val: Any) -> float:
+        """가격 값에서 최대값 추출 (방어적 계산)
+
+        Examples:
+            "10.00" → 10.0
+            "10.00-20.00" → 20.0
+            "¥10~¥20" → 20.0
+            {"min": 10, "max": 20} → 20.0
+        """
+        if not price_val:
+            return 0.0
+
+        # dict 형태 (일부 Actor)
+        if isinstance(price_val, dict):
+            return float(price_val.get("max") or price_val.get("min") or 0)
+
+        # 숫자 형태
+        if isinstance(price_val, (int, float)):
+            return float(price_val)
+
+        # 문자열 파싱
+        price_str = str(price_val)
+
+        # 범위 패턴: "10-20", "10~20", "10 - 20"
+        range_match = re.search(r'([\d.]+)\s*[-~]\s*([\d.]+)', price_str)
+        if range_match:
+            prices = [float(range_match.group(1)), float(range_match.group(2))]
+            return max(prices)
+
+        # 단일 숫자 추출
+        nums = re.findall(r'[\d.]+', price_str)
+        if nums:
+            return max(float(n) for n in nums)
+
+        return 0.0
+
+    def _extract_image(self, data: Dict[str, Any]) -> Optional[str]:
+        """대표 이미지 URL 추출"""
+        # 단일 이미지 필드
+        for key in ["mainImage", "image", "imageUrl", "img", "picture"]:
+            if data.get(key):
+                return data[key]
+
+        # 이미지 배열
+        images = data.get("images") or data.get("imageList") or data.get("pics") or []
+        if images and isinstance(images, list) and len(images) > 0:
+            return images[0] if isinstance(images[0], str) else images[0].get("url")
+
+        return None
+
+    def _extract_specs(self, data: Dict[str, Any]) -> Dict[str, str]:
+        """스펙 테이블 추출"""
+        specs = {}
+
+        # dict 형태
+        attrs = data.get("attributes") or data.get("specs") or data.get("properties") or {}
+        if isinstance(attrs, dict):
+            specs.update(attrs)
+        elif isinstance(attrs, list):
+            for item in attrs:
+                if isinstance(item, dict):
+                    key = item.get("name") or item.get("key") or item.get("attrName")
+                    val = item.get("value") or item.get("attrValue")
+                    if key and val:
+                        specs[key] = str(val)
+
+        return specs
+
+    def _parse_weight(self, data: Dict[str, Any], specs: Dict[str, str]) -> Optional[float]:
+        """무게 추출 (kg 단위 변환)"""
+        # 1. 최상위 필드
+        for key in ["weight", "grossWeight", "netWeight"]:
+            if key in data:
+                return self._convert_weight(data[key])
+
+        # 2. 스펙 내 검색
+        weight_keywords = ["重量", "weight", "净重", "毛重", "包装重量"]
+        for spec_key, spec_val in specs.items():
+            if any(kw in spec_key.lower() for kw in weight_keywords):
+                return self._convert_weight(spec_val)
+
+        return None
+
+    def _convert_weight(self, val: Any) -> Optional[float]:
+        """무게 값을 kg로 변환"""
+        if not val:
+            return None
+
+        if isinstance(val, (int, float)):
+            # 100 이상이면 g으로 간주
+            return val / 1000 if val >= 100 else val
+
+        val_str = str(val).lower()
+        nums = re.findall(r'[\d.]+', val_str)
+        if not nums:
+            return None
+
+        num = float(nums[0])
+
+        # 단위 감지
+        if 'g' in val_str and 'kg' not in val_str:
+            return num / 1000
+        return num
+
+    def _parse_dimensions(self, data: Dict[str, Any], specs: Dict[str, str]) -> Dict[str, Optional[float]]:
+        """치수 추출 (cm 단위)"""
+        result = {"length": None, "width": None, "height": None}
+
+        # 1. 최상위 필드
+        for dim, keys in [
+            ("length", ["length", "packingLength"]),
+            ("width", ["width", "packingWidth"]),
+            ("height", ["height", "packingHeight"]),
+        ]:
+            for key in keys:
+                if key in data and data[key]:
+                    result[dim] = self._convert_dimension(data[key])
+                    break
+
+        # 2. 스펙에서 "80*20*15cm" 같은 패턴 찾기
+        if not any(result.values()):
+            size_keywords = ["尺寸", "规格", "包装尺寸", "size", "dimension"]
+            for spec_key, spec_val in specs.items():
+                if any(kw in spec_key.lower() for kw in size_keywords):
+                    dims = self._parse_dimension_string(spec_val)
+                    if dims:
+                        result.update(dims)
+                        break
+
+        return result
+
+    def _convert_dimension(self, val: Any) -> Optional[float]:
+        """치수 값을 cm로 변환"""
+        if not val:
+            return None
+
+        if isinstance(val, (int, float)):
+            return float(val)
+
+        val_str = str(val).lower()
+        nums = re.findall(r'[\d.]+', val_str)
+        if not nums:
+            return None
+
+        num = float(nums[0])
+
+        # mm → cm 변환
+        if 'mm' in val_str:
+            return num / 10
+        return num
+
+    def _parse_dimension_string(self, val: str) -> Optional[Dict[str, float]]:
+        """'80*20*15cm' 같은 문자열 파싱"""
+        # 패턴: 숫자*숫자*숫자
+        match = re.search(r'([\d.]+)\s*[*xX×]\s*([\d.]+)\s*[*xX×]\s*([\d.]+)', val)
+        if match:
+            return {
+                "length": float(match.group(1)),
+                "width": float(match.group(2)),
+                "height": float(match.group(3)),
+            }
+        return None
+
+    def _extract_moq(self, data: Dict[str, Any]) -> int:
+        """최소 주문 수량 추출"""
+        for key in ["moq", "minOrder", "minOrderQuantity", "起批量"]:
+            if key in data:
+                try:
+                    return int(data[key])
+                except (ValueError, TypeError):
+                    pass
+        return 1
 
     def to_domain_product(self, scraped: ScrapedProduct, category: str = "기타") -> "Product":
         """ScrapedProduct를 도메인 모델 Product로 변환
