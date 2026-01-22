@@ -30,6 +30,10 @@ class ViolationType(Enum):
     TRADEMARK = "상표권 침해 가능성"
     PROHIBITED_WORD = "금지어 사용"
     PRICE_MANIPULATION = "가격 조작 표현"
+    # v3.5 추가 (Gemini 피드백 반영)
+    FUNCTIONAL_COSMETIC = "기능성화장품 표현 (인증 필요)"
+    CHILDREN_PRODUCT = "아동용 제품 주의사항"
+    INTELLECTUAL_PROPERTY = "지식재산권 침해 가능성"
 
 
 @dataclass
@@ -156,6 +160,45 @@ class PreFlightChecker:
             (r"(애플|삼성|LG|소니)", "전자 브랜드 언급"),
         ]
 
+        # ============================================
+        # v3.5 추가 패턴 (Gemini 피드백 반영)
+        # ============================================
+
+        # 8. 기능성화장품 표현 (HIGH - 식약처 인증 필요)
+        self.functional_cosmetic_patterns = [
+            (r"(자외선|UV).{0,5}(차단|방어|보호)", "자외선 차단 (기능성 인증 필요)"),
+            (r"(SPF|PA)\s*\d+", "자외선차단지수 표시 (인증 필요)"),
+            (r"(주름).{0,5}(개선|완화|케어)", "주름 개선 (기능성 인증 필요)"),
+            (r"(미백|화이트닝|브라이트닝)", "미백 기능 (인증 필요)"),
+            (r"(탈모).{0,5}(예방|방지|완화|개선)", "탈모 관련 (의약외품 인증 필요)"),
+            (r"(여드름|아크네).{0,5}(예방|개선|치료)", "여드름 관련 (인증 필요)"),
+            (r"(아토피|피부염).{0,5}(개선|완화|치료)", "피부질환 관련 (의약품)"),
+        ]
+
+        # 9. 아동용 제품 주의사항 (HIGH - KC 인증 등)
+        self.children_product_patterns = [
+            (r"(유아|아기|어린이|키즈|베이비).{0,10}(장난감|완구)", "아동용 완구 (KC 인증 필수)"),
+            (r"(유아|아기|어린이).{0,10}(식품|간식|음식)", "아동용 식품 (HACCP 등)"),
+            (r"(유아|아기).{0,10}(화장품|로션|크림)", "영유아 화장품 (안전 기준)"),
+            (r"(유아|아기|어린이).{0,5}용", "아동용 제품 (인증 확인 필요)"),
+            (r"(\d+)개월.{0,5}(이상|부터|사용)", "사용 연령 표시 (검증 필요)"),
+            (r"(출산|임산부|임신).{0,5}(선물|용품)", "임산부/출산 용품"),
+        ]
+
+        # 10. 지식재산권 침해 (HIGH - 디자인/캐릭터)
+        self.ip_patterns = [
+            # 유명 캐릭터
+            (r"(디즈니|마블|픽사|산리오)", "디즈니/산리오 캐릭터 (라이선스 필요)"),
+            (r"(미키마우스|미니마우스|엘사|스파이더맨|아이언맨)", "캐릭터명 (라이선스)"),
+            (r"(헬로키티|마이멜로디|시나모롤|쿠로미)", "산리오 캐릭터"),
+            (r"(짱구|뽀로로|핑크퐁|아기상어|카카오프렌즈)", "국내 캐릭터"),
+            (r"(라이언|어피치|무지|콘|네오|제이지|튜브)", "카카오프렌즈 캐릭터"),
+            # 디자인 카피
+            (r"(OEM|ODM).{0,5}(가능|제작)", "OEM/ODM 언급 (B2B 전용)"),
+            (r"(레플리카|레플|짝퉁|모조품)", "모조품 관련 (불법)"),
+            (r"(~풍|~스타일|~느낌|~감성).{0,5}(디자인|제품)", "디자인 카피 암시"),
+        ]
+
     def check(self, text: str) -> PreFlightResult:
         """텍스트 검사 실행
 
@@ -250,6 +293,46 @@ class PreFlightChecker:
                     suggestion="상표권 침해 주의 - 표현 수정 권장"
                 ))
 
+        # ============================================
+        # v3.5 추가 검사 (Gemini 피드백 반영)
+        # ============================================
+
+        # 8. 기능성화장품 (HIGH)
+        for pattern, desc in self.functional_cosmetic_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                violations.append(Violation(
+                    type=ViolationType.FUNCTIONAL_COSMETIC,
+                    matched_text=match.group(),
+                    pattern=desc,
+                    severity="high",
+                    suggestion="기능성화장품은 식약처 인증 필요. 인증 없으면 표현 삭제"
+                ))
+
+        # 9. 아동용 제품 (HIGH)
+        for pattern, desc in self.children_product_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                violations.append(Violation(
+                    type=ViolationType.CHILDREN_PRODUCT,
+                    matched_text=match.group(),
+                    pattern=desc,
+                    severity="high",
+                    suggestion="아동용 제품은 KC인증/HACCP 등 필수. 인증서 확인 필요"
+                ))
+
+        # 10. 지식재산권 (HIGH)
+        for pattern, desc in self.ip_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                violations.append(Violation(
+                    type=ViolationType.INTELLECTUAL_PROPERTY,
+                    matched_text=match.group(),
+                    pattern=desc,
+                    severity="high",
+                    suggestion="캐릭터/디자인 라이선스 확인 필수. 무단 사용 시 법적 문제"
+                ))
+
         # 결과 집계
         error_count = sum(1 for v in violations if v.severity == "high")
         warning_count = sum(1 for v in violations if v.severity in ("medium", "low"))
@@ -303,6 +386,19 @@ class PreFlightChecker:
             ViolationType.EXAGGERATION: [
                 "좋은 품질", "합리적인 가격", "실용적인",
                 "편리한 사용", "만족스러운",
+            ],
+            # v3.5 추가 대안
+            ViolationType.FUNCTIONAL_COSMETIC: [
+                "피부 보습", "촉촉한 사용감", "부드러운 발림성",
+                "산뜻한 마무리", "데일리 케어",
+            ],
+            ViolationType.CHILDREN_PRODUCT: [
+                "온 가족 사용", "순한 성분", "피부 자극 테스트 완료",
+                "안전한 소재", "친환경 소재",
+            ],
+            ViolationType.INTELLECTUAL_PROPERTY: [
+                "오리지널 디자인", "자체 제작", "독창적인 디자인",
+                "심플 디자인", "모던 스타일",
             ],
         }
         return alternatives.get(violation.type, [])

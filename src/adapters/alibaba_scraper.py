@@ -209,38 +209,71 @@ class AlibabaScraper:
     def _extract_max_price(self, price_val: Any) -> float:
         """가격 값에서 최대값 추출 (방어적 계산)
 
+        [비즈니스 로직]
+        - 범위 가격이면 최대값 선택 (최악의 경우 가정)
+        - 여러 가격이 있으면 최대값 선택
+
         Examples:
             "10.00" → 10.0
             "10.00-20.00" → 20.0
             "¥10~¥20" → 20.0
             {"min": 10, "max": 20} → 20.0
+            [10, 20, 30] → 30.0
+            "10,000" → 10000.0
         """
         if not price_val:
             return 0.0
 
-        # dict 형태 (일부 Actor)
-        if isinstance(price_val, dict):
-            return float(price_val.get("max") or price_val.get("min") or 0)
+        try:
+            # dict 형태 (일부 Actor)
+            if isinstance(price_val, dict):
+                max_val = price_val.get("max") or price_val.get("high") or price_val.get("price")
+                min_val = price_val.get("min") or price_val.get("low")
+                if max_val:
+                    return float(max_val)
+                if min_val:
+                    return float(min_val)
+                return 0.0
 
-        # 숫자 형태
-        if isinstance(price_val, (int, float)):
-            return float(price_val)
+            # 리스트 형태 (여러 SKU 가격)
+            if isinstance(price_val, (list, tuple)):
+                prices = []
+                for p in price_val:
+                    if isinstance(p, (int, float)):
+                        prices.append(float(p))
+                    elif isinstance(p, dict):
+                        prices.append(self._extract_max_price(p))
+                return max(prices) if prices else 0.0
 
-        # 문자열 파싱
-        price_str = str(price_val)
+            # 숫자 형태
+            if isinstance(price_val, (int, float)):
+                return float(price_val)
 
-        # 범위 패턴: "10-20", "10~20", "10 - 20"
-        range_match = re.search(r'([\d.]+)\s*[-~]\s*([\d.]+)', price_str)
-        if range_match:
-            prices = [float(range_match.group(1)), float(range_match.group(2))]
-            return max(prices)
+            # 문자열 파싱
+            price_str = str(price_val)
 
-        # 단일 숫자 추출
-        nums = re.findall(r'[\d.]+', price_str)
-        if nums:
-            return max(float(n) for n in nums)
+            # 통화 기호 및 천 단위 구분자 제거
+            price_str = re.sub(r'[¥￥$€₩,，]', '', price_str)
 
-        return 0.0
+            # 범위 패턴: "10-20", "10~20", "10 - 20", "10至20"
+            range_match = re.search(r'([\d.]+)\s*[-~至]\s*([\d.]+)', price_str)
+            if range_match:
+                prices = [float(range_match.group(1)), float(range_match.group(2))]
+                return max(prices)
+
+            # 단일 숫자 추출
+            nums = re.findall(r'[\d.]+', price_str)
+            if nums:
+                # 숫자가 여러 개면 가격으로 보이는 것만 필터 (0.01 ~ 100000 범위)
+                valid_prices = [float(n) for n in nums if 0.01 <= float(n) <= 100000]
+                return max(valid_prices) if valid_prices else 0.0
+
+            return 0.0
+
+        except (ValueError, TypeError) as e:
+            # 파싱 실패 시 0 반환 (마진 계산에서 필터링됨)
+            print(f"⚠️ 가격 파싱 실패: {price_val} - {e}")
+            return 0.0
 
     def _extract_image(self, data: Dict[str, Any]) -> Optional[str]:
         """대표 이미지 URL 추출"""
