@@ -43,6 +43,9 @@ class ReviewAnalysisResult:
     improvement_requests: List[str] = field(default_factory=list)
     marketing_hooks: List[str] = field(default_factory=list)
     verdict: Verdict = Verdict.HOLD
+    # v3.5.1 추가 (Gemini 피드백)
+    summary_one_line: str = ""  # 한 줄 요약
+    sample_check_points: List[str] = field(default_factory=list)  # 샘플 체크리스트
     raw_response: Optional[str] = None
 
     @property
@@ -59,19 +62,34 @@ class ReviewAnalysisResult:
         return any(d.frequency == "High" for d in self.critical_defects)
 
 
-# Gemini 분석 프롬프트 (Phase 5.1)
+# 카테고리별 분석 포인트 (Dynamic Context Injection)
+CATEGORY_CONTEXT = {
+    "의류": "핏, 마감, 세탁 후 변형, 사이즈 정확도, 원단 품질",
+    "가구": "조립 난이도, 냄새, 흔들림, 내구성, 배송 파손",
+    "전자기기": "발열, 배터리 수명, 오작동, 소음, 호환성",
+    "주방용품": "코팅 벗겨짐, 세척 편의성, 냄새 배임, 내열성",
+    "캠핑/레저": "내구성, 무게, 방수 성능, 조립 편의성",
+    "화장품": "피부 트러블, 발림성, 향, 지속력, 용량",
+    "기타": "전반적인 품질, 가성비, 사용 편의성",
+}
+
+# Gemini 분석 프롬프트 (Phase 5.1 - v3.5.1 업데이트)
 REVIEW_ANALYSIS_PROMPT = """당신은 연 매출 100억 쇼핑몰의 수석 MD이자 상품 기획자입니다.
 수집된 리뷰 데이터를 분석하여, 이 상품을 소싱할 때 '반드시 개선해야 할 점'과 '강조해야 할 점'을 도출하십시오.
+
+[상품 카테고리] {category}
+[카테고리별 중점 분석 포인트] {category_focus}
 
 [분석 지침]
 1. **Noise Filtering**: "배송이 늦어요", "박스가 찌그러졌어요" 같은 단순 CS는 무시하십시오. 오직 '제품 자체'에 집중하십시오.
 2. **Severity Scoring**: 같은 불만이 반복되면 가중치를 높이십시오.
 3. **Sentiment Gap**: 고객이 기대했으나 실망한 포인트(Gap)를 찾으십시오.
+4. **Category Specific Check**: 위에 명시된 카테고리별 중점 포인트에 집중하십시오.
 
 [출력 형식 (JSON만 출력 - 마크다운/인사말 금지)]
-{
+{{
   "critical_defects": [
-    {"issue": "세탁 후 수축 심함", "frequency": "High", "quote": "한 번 빨았더니 아기 옷이 됐어요"}
+    {{"issue": "세탁 후 수축 심함", "frequency": "High", "quote": "한 번 빨았더니 아기 옷이 됐어요"}}
   ],
   "improvement_requests": [
     "마감 실밥 처리 강화 요청",
@@ -81,8 +99,14 @@ REVIEW_ANALYSIS_PROMPT = """당신은 연 매출 100억 쇼핑몰의 수석 MD�
     "예상보다 훨씬 가벼움 (무게 강조)",
     "색감이 화면과 똑같음 (실사 강조)"
   ],
+  "summary_one_line": "마감 이슈가 있으나 가격 대비 성능이 우수하여 소싱 추천",
+  "sample_check_points": [
+    "실밥 마감 상태 확인",
+    "세탁 테스트 진행",
+    "실측 사이즈 측정"
+  ],
   "verdict": "Go"
-}
+}}
 
 [verdict 기준]
 - "Go": 치명적 결함 없음, 소싱 진행 권장
@@ -115,11 +139,12 @@ class ReviewAnalyzer:
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY 환경변수 또는 api_key 파라미터 필요")
 
-    async def analyze(self, reviews_text: str) -> ReviewAnalysisResult:
+    async def analyze(self, reviews_text: str, category: str = "기타") -> ReviewAnalysisResult:
         """리뷰 텍스트 분석
 
         Args:
             reviews_text: 분석할 리뷰 텍스트 (줄바꿈으로 구분)
+            category: 상품 카테고리 (의류, 가구, 전자기기 등)
 
         Returns:
             ReviewAnalysisResult: 분석 결과
@@ -129,7 +154,12 @@ class ReviewAnalyzer:
         genai.configure(api_key=self.api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
 
-        prompt = REVIEW_ANALYSIS_PROMPT.format(reviews=reviews_text)
+        category_focus = CATEGORY_CONTEXT.get(category, CATEGORY_CONTEXT["기타"])
+        prompt = REVIEW_ANALYSIS_PROMPT.format(
+            reviews=reviews_text,
+            category=category,
+            category_focus=category_focus
+        )
 
         try:
             response = await model.generate_content_async(prompt)
@@ -141,11 +171,12 @@ class ReviewAnalyzer:
                 raw_response=str(e)
             )
 
-    def analyze_sync(self, reviews_text: str) -> ReviewAnalysisResult:
+    def analyze_sync(self, reviews_text: str, category: str = "기타") -> ReviewAnalysisResult:
         """동기 버전 리뷰 분석
 
         Args:
             reviews_text: 분석할 리뷰 텍스트
+            category: 상품 카테고리 (의류, 가구, 전자기기 등)
 
         Returns:
             ReviewAnalysisResult: 분석 결과
@@ -155,7 +186,12 @@ class ReviewAnalyzer:
         genai.configure(api_key=self.api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
 
-        prompt = REVIEW_ANALYSIS_PROMPT.format(reviews=reviews_text)
+        category_focus = CATEGORY_CONTEXT.get(category, CATEGORY_CONTEXT["기타"])
+        prompt = REVIEW_ANALYSIS_PROMPT.format(
+            reviews=reviews_text,
+            category=category,
+            category_focus=category_focus
+        )
 
         try:
             response = model.generate_content(prompt)
@@ -203,6 +239,8 @@ class ReviewAnalyzer:
                 improvement_requests=data.get("improvement_requests", []),
                 marketing_hooks=data.get("marketing_hooks", []),
                 verdict=verdict,
+                summary_one_line=data.get("summary_one_line", ""),
+                sample_check_points=data.get("sample_check_points", []),
                 raw_response=response_text
             )
 
@@ -228,8 +266,12 @@ class ReviewAnalyzer:
             "=" * 50,
             "",
             f"판정: {result.summary}",
-            "",
         ]
+
+        # 한 줄 요약 (v3.5.1 추가)
+        if result.summary_one_line:
+            lines.append(f"📝 {result.summary_one_line}")
+        lines.append("")
 
         # 치명적 결함
         if result.critical_defects:
@@ -258,6 +300,14 @@ class ReviewAnalyzer:
                 lines.append(f"  • {item}")
             lines.append("")
 
+        # 샘플 체크리스트 (v3.5.1 추가)
+        if result.sample_check_points:
+            lines.append("✅ 샘플 수령 시 체크리스트")
+            lines.append("-" * 30)
+            for i, item in enumerate(result.sample_check_points, 1):
+                lines.append(f"  {i}. {item}")
+            lines.append("")
+
         lines.append("=" * 50)
         return "\n".join(lines)
 
@@ -281,7 +331,7 @@ def analyze_reviews(reviews_text: str, api_key: Optional[str] = None) -> ReviewA
 class MockReviewAnalyzer:
     """Mock 리뷰 분석기 (테스트/데모용)"""
 
-    def analyze_sync(self, reviews_text: str) -> ReviewAnalysisResult:
+    def analyze_sync(self, reviews_text: str, category: str = "기타") -> ReviewAnalysisResult:
         """Mock 분석 결과 반환"""
         return ReviewAnalysisResult(
             critical_defects=[
@@ -307,6 +357,13 @@ class MockReviewAnalyzer:
                 "빠른 배송 만족 (익일배송 강조)",
             ],
             verdict=Verdict.HOLD,
+            summary_one_line="마감 이슈가 있으나 가격 대비 성능이 우수하여 샘플 확인 후 결정",
+            sample_check_points=[
+                "실밥 마감 상태 꼼꼼히 확인",
+                "세탁 테스트 진행 (수축률 확인)",
+                "실측 사이즈 측정 후 가이드와 비교",
+                "지퍼/단추 등 부자재 작동 확인",
+            ],
             raw_response="Mock response"
         )
 

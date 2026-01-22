@@ -457,11 +457,11 @@ with tab3:
         """)
 
 # ============================================================
-# TAB 4: 리뷰 분석 (Phase 5.1 MVP)
+# TAB 4: 리뷰 분석 (Phase 5.1 MVP - v3.5.1)
 # ============================================================
 with tab4:
     st.header("📝 경쟁사 리뷰 분석")
-    st.markdown("리뷰를 분석하여 **치명적 결함**, **개선점**, **마케팅 소구점**을 도출합니다.")
+    st.markdown("리뷰를 분석하여 **치명적 결함**, **개선점**, **마케팅 소구점**, **샘플 체크리스트**를 도출합니다.")
 
     # API 키 상태 확인
     import os
@@ -474,6 +474,14 @@ with tab4:
     else:
         st.success("✅ Gemini API 연결됨")
         use_mock_review = False
+
+    # 카테고리 선택 (v3.5.1 추가)
+    review_category = st.selectbox(
+        "📦 상품 카테고리",
+        options=["의류", "가구", "전자기기", "주방용품", "캠핑/레저", "화장품", "기타"],
+        index=0,
+        help="카테고리에 맞는 분석 포인트가 적용됩니다"
+    )
 
     # 입력 방식 선택
     input_method = st.radio(
@@ -522,18 +530,34 @@ with tab4:
                     else:
                         analyzer = ReviewAnalyzer(api_key=google_api_key)
 
-                    result = analyzer.analyze_sync(reviews_text or "테스트 리뷰")
+                    result = analyzer.analyze_sync(reviews_text or "테스트 리뷰", category=review_category)
 
                     # 결과 표시
                     st.markdown("---")
 
-                    # 판정 결과
+                    # 판정 결과 (신호등 스타일)
                     if result.verdict == Verdict.GO:
-                        st.success(f"✅ **판정: {result.verdict.value}** - 소싱 진행 권장")
+                        st.markdown("""
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 10px; border-left: 5px solid #28a745;">
+                            <h3 style="color: #155724; margin: 0;">🟢 판정: Go - 소싱 진행 권장</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
                     elif result.verdict == Verdict.HOLD:
-                        st.warning(f"⚠️ **판정: {result.verdict.value}** - 추가 검토 필요 (샘플 확인)")
+                        st.markdown("""
+                        <div style="background-color: #fff3cd; padding: 15px; border-radius: 10px; border-left: 5px solid #ffc107;">
+                            <h3 style="color: #856404; margin: 0;">🟡 판정: Hold - 샘플 확인 후 결정</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.error(f"❌ **판정: {result.verdict.value}** - 소싱 포기 권장")
+                        st.markdown("""
+                        <div style="background-color: #f8d7da; padding: 15px; border-radius: 10px; border-left: 5px solid #dc3545;">
+                            <h3 style="color: #721c24; margin: 0;">🔴 판정: Drop - 소싱 포기 권장</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 한 줄 요약 (v3.5.1 추가)
+                    if result.summary_one_line:
+                        st.info(f"📝 **요약:** {result.summary_one_line}")
 
                     # 3단 컬럼 레이아웃
                     col1, col2, col3 = st.columns(3)
@@ -542,12 +566,12 @@ with tab4:
                         st.subheader("🚨 치명적 결함")
                         if result.critical_defects:
                             for d in result.critical_defects:
-                                freq_color = "red" if d.frequency == "High" else "orange" if d.frequency == "Medium" else "green"
-                                st.markdown(f"**[{d.frequency}]** {d.issue}")
+                                freq_icon = "🔴" if d.frequency == "High" else "🟡" if d.frequency == "Medium" else "🟢"
+                                st.markdown(f"{freq_icon} **[{d.frequency}]** {d.issue}")
                                 if d.quote:
                                     st.caption(f'💬 "{d.quote}"')
                         else:
-                            st.info("치명적 결함 없음")
+                            st.success("치명적 결함 없음")
 
                     with col2:
                         st.subheader("🔧 공장 협의사항")
@@ -564,6 +588,13 @@ with tab4:
                                 st.markdown(f"• {item}")
                         else:
                             st.info("소구점 미발견")
+
+                    # 샘플 체크리스트 (v3.5.1 추가)
+                    if result.sample_check_points:
+                        st.markdown("---")
+                        st.subheader("✅ 샘플 수령 시 체크리스트")
+                        for i, item in enumerate(result.sample_check_points, 1):
+                            st.checkbox(f"{i}. {item}", key=f"check_{i}", value=False)
 
                     # 상세 보기
                     with st.expander("📋 전체 분석 리포트"):
