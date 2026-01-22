@@ -1,14 +1,15 @@
 """
-app.py - Streamlit 대시보드 (v3.5)
+app.py - Streamlit 대시보드 (v3.5.1)
 
 DDD 원칙: UI는 껍데기일 뿐, 로직은 domain에서 가져옴
 - 로직 변경 시 이 파일은 수정 불필요
 - Next.js로 전환해도 domain 코드 재사용 가능
 
-v3.5 업데이트:
+v3.5.1 업데이트:
 - 탭 기반 UI로 변경
 - 1688 스크래핑 탭 추가 (Apify API)
-- Pre-Flight Check 탭 추가 (금지어 검사)
+- Pre-Flight Check 탭 추가 (금지어 검사 + 의료기기 패턴)
+- 리뷰 분석 탭 추가 (Phase 5.1 MVP)
 """
 
 import streamlit as st
@@ -35,12 +36,17 @@ st.set_page_config(
 )
 
 st.title("🛡️ Smart Store Agent")
-st.markdown("**v3.5** | AI 기반 스마트스토어 자동화 시스템")
+st.markdown("**v3.5.1** | AI 기반 스마트스토어 자동화 시스템")
 
 # ============================================================
-# 탭 구성
+# 탭 구성 (4개 탭)
 # ============================================================
-tab1, tab2, tab3 = st.tabs(["📊 마진 분석", "🇨🇳 1688 스크래핑", "✅ Pre-Flight Check"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 마진 분석",
+    "🇨🇳 1688 스크래핑",
+    "✅ Pre-Flight Check",
+    "📝 리뷰 분석"
+])
 
 # ============================================================
 # 사이드바: 공통 설정
@@ -423,15 +429,16 @@ with tab3:
                         st.markdown(f"  🔄 **대안:** {', '.join(alternatives[:3])}")
 
     # 금지어 가이드
-    with st.expander("📋 금지어 가이드 (v3.5 업데이트)"):
+    with st.expander("📋 금지어 가이드 (v3.5.1 업데이트)"):
         st.markdown("""
         ### 🔴 절대 금지 (HIGH)
         - **의료/건강 효능**: 암 예방, 당뇨 개선, 면역력 강화 등
         - **효과 보장**: 100% 효과, 무조건 성공, 효과 보장
         - **네이버 금지어**: 카카오톡, 쿠팡, 직거래, 계좌이체 등
-        - **기능성화장품** ⭐NEW: 미백, 주름개선, 자외선차단 (식약처 인증 필요)
-        - **아동용제품** ⭐NEW: 유아용 장난감, 아기 화장품 (KC인증 필요)
-        - **지식재산권** ⭐NEW: 디즈니, 카카오프렌즈 캐릭터 (라이선스 필요)
+        - **기능성화장품**: 미백, 주름개선, 자외선차단 (식약처 인증 필요)
+        - **아동용제품**: 유아용 장난감, 아기 화장품 (KC인증 필요)
+        - **지식재산권**: 디즈니, 카카오프렌즈 캐릭터 (라이선스 필요)
+        - **의료기기 오인** ⭐NEW: 치료, 교정, 통증 완화, 혈액순환 등
 
         ### 🟡 주의 필요 (MEDIUM)
         - **최상급 표현**: 최고, 최초, 1위, 완벽, 기적
@@ -445,6 +452,147 @@ with tab3:
         - "100% 효과" → "만족도 높은", "호평받는"
         - "미백 효과" → "피부 보습", "촉촉한 사용감"
         - "디즈니 캐릭터" → "오리지널 디자인", "자체 제작"
+        - "통증 완화" → "편안한 사용감", "릴렉스"
+        - "자세 교정" → "바른 자세 도움", "자세 습관 관리"
+        """)
+
+# ============================================================
+# TAB 4: 리뷰 분석 (Phase 5.1 MVP)
+# ============================================================
+with tab4:
+    st.header("📝 경쟁사 리뷰 분석")
+    st.markdown("리뷰를 분석하여 **치명적 결함**, **개선점**, **마케팅 소구점**을 도출합니다.")
+
+    # API 키 상태 확인
+    import os
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+
+    if not google_api_key:
+        st.warning("⚠️ GOOGLE_API_KEY가 설정되지 않았습니다. .env 파일에 키를 추가하세요.")
+        st.code("GOOGLE_API_KEY=your_google_api_key", language="ini")
+        use_mock_review = True
+    else:
+        st.success("✅ Gemini API 연결됨")
+        use_mock_review = False
+
+    # 입력 방식 선택
+    input_method = st.radio(
+        "입력 방식",
+        options=["텍스트 붙여넣기", "파일 업로드 (TXT)"],
+        horizontal=True,
+        help="MVP: 네이버 리뷰 페이지에서 텍스트를 복사하여 붙여넣으세요"
+    )
+
+    reviews_text = ""
+
+    if input_method == "텍스트 붙여넣기":
+        reviews_text = st.text_area(
+            "리뷰 텍스트 (줄바꿈으로 구분)",
+            height=200,
+            placeholder="""좋아요! 색감이 사진이랑 똑같아요.
+근데 세탁하니까 좀 줄었어요...
+실밥이 튀어나와 있어서 아쉬워요.
+배송은 빨랐는데 박스가 찌그러져서 왔어요.
+원단이 생각보다 두껍고 고급스러워요!
+사이즈가 좀 작게 나온 것 같아요. 한 사이즈 크게 주문하세요.""",
+            key="review_text"
+        )
+    else:
+        uploaded_file = st.file_uploader("리뷰 파일 업로드", type=["txt"], key="review_file")
+        if uploaded_file:
+            reviews_text = uploaded_file.read().decode("utf-8")
+            st.text_area("업로드된 내용", reviews_text, height=150, disabled=True)
+
+    # Mock 모드 체크박스
+    use_mock_review_checkbox = st.checkbox("🧪 테스트 모드 (Mock 데이터)", value=use_mock_review, key="review_mock")
+
+    # 분석 버튼
+    if st.button("🔍 리뷰 분석", type="primary", key="review_btn"):
+        if not reviews_text and not use_mock_review_checkbox:
+            st.error("리뷰 텍스트를 입력하세요.")
+        else:
+            with st.spinner("🧠 Gemini가 리뷰를 분석 중..."):
+                try:
+                    from src.analyzers.review_analyzer import (
+                        ReviewAnalyzer, MockReviewAnalyzer, Verdict
+                    )
+
+                    if use_mock_review_checkbox:
+                        analyzer = MockReviewAnalyzer()
+                    else:
+                        analyzer = ReviewAnalyzer(api_key=google_api_key)
+
+                    result = analyzer.analyze_sync(reviews_text or "테스트 리뷰")
+
+                    # 결과 표시
+                    st.markdown("---")
+
+                    # 판정 결과
+                    if result.verdict == Verdict.GO:
+                        st.success(f"✅ **판정: {result.verdict.value}** - 소싱 진행 권장")
+                    elif result.verdict == Verdict.HOLD:
+                        st.warning(f"⚠️ **판정: {result.verdict.value}** - 추가 검토 필요 (샘플 확인)")
+                    else:
+                        st.error(f"❌ **판정: {result.verdict.value}** - 소싱 포기 권장")
+
+                    # 3단 컬럼 레이아웃
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.subheader("🚨 치명적 결함")
+                        if result.critical_defects:
+                            for d in result.critical_defects:
+                                freq_color = "red" if d.frequency == "High" else "orange" if d.frequency == "Medium" else "green"
+                                st.markdown(f"**[{d.frequency}]** {d.issue}")
+                                if d.quote:
+                                    st.caption(f'💬 "{d.quote}"')
+                        else:
+                            st.info("치명적 결함 없음")
+
+                    with col2:
+                        st.subheader("🔧 공장 협의사항")
+                        if result.improvement_requests:
+                            for item in result.improvement_requests:
+                                st.markdown(f"• {item}")
+                        else:
+                            st.info("특별 요청 없음")
+
+                    with col3:
+                        st.subheader("💡 마케팅 소구점")
+                        if result.marketing_hooks:
+                            for item in result.marketing_hooks:
+                                st.markdown(f"• {item}")
+                        else:
+                            st.info("소구점 미발견")
+
+                    # 상세 보기
+                    with st.expander("📋 전체 분석 리포트"):
+                        st.code(analyzer.format_report(result), language="text")
+
+                except ImportError as e:
+                    st.error(f"패키지 오류: {e}")
+                    st.code("pip install google-generativeai", language="bash")
+                except Exception as e:
+                    st.error(f"분석 실패: {str(e)}")
+
+    # 사용법 가이드
+    with st.expander("💡 사용법 가이드"):
+        st.markdown("""
+        ### 리뷰 수집 방법 (MVP)
+        1. 네이버 쇼핑에서 경쟁 상품 페이지 열기
+        2. 리뷰 탭에서 **최신순** 또는 **별점낮은순** 정렬
+        3. 리뷰 텍스트를 복사 (Ctrl+C)
+        4. 위 입력창에 붙여넣기 (Ctrl+V)
+
+        ### 분석 결과 해석
+        - **🚨 치명적 결함**: 즉시 소싱 포기 사유 (품질 문제)
+        - **🔧 공장 협의사항**: 1688 판매자에게 요청할 개선점
+        - **💡 마케팅 소구점**: 상세페이지에 강조할 장점
+
+        ### 판정 기준
+        - **Go**: 심각한 결함 없음, 소싱 진행
+        - **Hold**: 일부 이슈 있음, 샘플 확인 후 결정
+        - **Drop**: 치명적 결함, 소싱 포기 권장
         """)
 
 # ============================================================
@@ -454,7 +602,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-        Smart Store Agent v3.5 | Phase 3.5 완료 (Apify 전환)<br>
+        Smart Store Agent v3.5.1 | Phase 5.1 MVP (리뷰 분석)<br>
         "망하는 상품을 미리 걸러내는" 보수적 분석기<br>
         Powered by Claude Code + Gemini AI + Apify
     </div>

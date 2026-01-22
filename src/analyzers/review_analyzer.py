@@ -1,0 +1,316 @@
+"""
+review_analyzer.py - 리뷰 분석 모듈 (Phase 5.1)
+
+경쟁사 리뷰 데이터를 분석하여:
+1. 치명적 결함 (소싱 포기 사유)
+2. 개선 요청 사항 (공장 협의용)
+3. 마케팅 소구점 (상세페이지 강조점)
+
+사용법:
+    analyzer = ReviewAnalyzer(api_key="your_gemini_key")
+    result = await analyzer.analyze(reviews_text)
+
+    if result.verdict == "Drop":
+        print("소싱 포기 권장")
+"""
+
+import json
+import re
+from dataclasses import dataclass, field
+from typing import List, Optional, Literal
+from enum import Enum
+
+
+class Verdict(Enum):
+    """소싱 판단"""
+    GO = "Go"       # 소싱 진행
+    HOLD = "Hold"   # 추가 검토 필요
+    DROP = "Drop"   # 소싱 포기
+
+
+@dataclass
+class CriticalDefect:
+    """치명적 결함"""
+    issue: str              # 문제 설명
+    frequency: str          # "High", "Medium", "Low"
+    quote: Optional[str] = None  # 실제 리뷰 인용
+
+
+@dataclass
+class ReviewAnalysisResult:
+    """리뷰 분석 결과"""
+    critical_defects: List[CriticalDefect] = field(default_factory=list)
+    improvement_requests: List[str] = field(default_factory=list)
+    marketing_hooks: List[str] = field(default_factory=list)
+    verdict: Verdict = Verdict.HOLD
+    raw_response: Optional[str] = None
+
+    @property
+    def summary(self) -> str:
+        if self.verdict == Verdict.GO:
+            return "✅ 소싱 진행 권장"
+        elif self.verdict == Verdict.HOLD:
+            return "⚠️ 추가 검토 필요"
+        else:
+            return "❌ 소싱 포기 권장"
+
+    @property
+    def has_critical_issues(self) -> bool:
+        return any(d.frequency == "High" for d in self.critical_defects)
+
+
+# Gemini 분석 프롬프트 (Phase 5.1)
+REVIEW_ANALYSIS_PROMPT = """당신은 연 매출 100억 쇼핑몰의 수석 MD이자 상품 기획자입니다.
+수집된 리뷰 데이터를 분석하여, 이 상품을 소싱할 때 '반드시 개선해야 할 점'과 '강조해야 할 점'을 도출하십시오.
+
+[분석 지침]
+1. **Noise Filtering**: "배송이 늦어요", "박스가 찌그러졌어요" 같은 단순 CS는 무시하십시오. 오직 '제품 자체'에 집중하십시오.
+2. **Severity Scoring**: 같은 불만이 반복되면 가중치를 높이십시오.
+3. **Sentiment Gap**: 고객이 기대했으나 실망한 포인트(Gap)를 찾으십시오.
+
+[출력 형식 (JSON만 출력 - 마크다운/인사말 금지)]
+{
+  "critical_defects": [
+    {"issue": "세탁 후 수축 심함", "frequency": "High", "quote": "한 번 빨았더니 아기 옷이 됐어요"}
+  ],
+  "improvement_requests": [
+    "마감 실밥 처리 강화 요청",
+    "매뉴얼에 한국어 설명 추가 필요"
+  ],
+  "marketing_hooks": [
+    "예상보다 훨씬 가벼움 (무게 강조)",
+    "색감이 화면과 똑같음 (실사 강조)"
+  ],
+  "verdict": "Go"
+}
+
+[verdict 기준]
+- "Go": 치명적 결함 없음, 소싱 진행 권장
+- "Hold": 일부 이슈 있으나 샘플 확인 후 결정
+- "Drop": 치명적 결함으로 소싱 포기 권장
+
+[리뷰 데이터]
+{reviews}
+"""
+
+
+class ReviewAnalyzer:
+    """리뷰 분석기 (Gemini API 사용)
+
+    Example:
+        analyzer = ReviewAnalyzer(api_key="your_key")
+        result = await analyzer.analyze("좋아요! 근데 실밥이 좀...")
+
+        print(result.verdict)  # Verdict.HOLD
+        print(result.marketing_hooks)  # ["..."]
+    """
+
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Args:
+            api_key: Google API 키 (환경변수 GOOGLE_API_KEY 사용 가능)
+        """
+        import os
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY 환경변수 또는 api_key 파라미터 필요")
+
+    async def analyze(self, reviews_text: str) -> ReviewAnalysisResult:
+        """리뷰 텍스트 분석
+
+        Args:
+            reviews_text: 분석할 리뷰 텍스트 (줄바꿈으로 구분)
+
+        Returns:
+            ReviewAnalysisResult: 분석 결과
+        """
+        import google.generativeai as genai
+
+        genai.configure(api_key=self.api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = REVIEW_ANALYSIS_PROMPT.format(reviews=reviews_text)
+
+        try:
+            response = await model.generate_content_async(prompt)
+            return self._parse_response(response.text)
+        except Exception as e:
+            print(f"Gemini API 오류: {e}")
+            return ReviewAnalysisResult(
+                verdict=Verdict.HOLD,
+                raw_response=str(e)
+            )
+
+    def analyze_sync(self, reviews_text: str) -> ReviewAnalysisResult:
+        """동기 버전 리뷰 분석
+
+        Args:
+            reviews_text: 분석할 리뷰 텍스트
+
+        Returns:
+            ReviewAnalysisResult: 분석 결과
+        """
+        import google.generativeai as genai
+
+        genai.configure(api_key=self.api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = REVIEW_ANALYSIS_PROMPT.format(reviews=reviews_text)
+
+        try:
+            response = model.generate_content(prompt)
+            return self._parse_response(response.text)
+        except Exception as e:
+            print(f"Gemini API 오류: {e}")
+            return ReviewAnalysisResult(
+                verdict=Verdict.HOLD,
+                raw_response=str(e)
+            )
+
+    def _parse_response(self, response_text: str) -> ReviewAnalysisResult:
+        """Gemini 응답 파싱
+
+        Args:
+            response_text: Gemini 응답 텍스트
+
+        Returns:
+            ReviewAnalysisResult: 파싱된 결과
+        """
+        try:
+            # JSON 추출 (코드 블록 제거)
+            json_str = response_text.strip()
+            json_str = re.sub(r'^```json\s*', '', json_str)
+            json_str = re.sub(r'\s*```$', '', json_str)
+
+            data = json.loads(json_str)
+
+            # critical_defects 파싱
+            critical_defects = []
+            for d in data.get("critical_defects", []):
+                critical_defects.append(CriticalDefect(
+                    issue=d.get("issue", ""),
+                    frequency=d.get("frequency", "Medium"),
+                    quote=d.get("quote")
+                ))
+
+            # verdict 파싱
+            verdict_str = data.get("verdict", "Hold")
+            verdict_map = {"Go": Verdict.GO, "Hold": Verdict.HOLD, "Drop": Verdict.DROP}
+            verdict = verdict_map.get(verdict_str, Verdict.HOLD)
+
+            return ReviewAnalysisResult(
+                critical_defects=critical_defects,
+                improvement_requests=data.get("improvement_requests", []),
+                marketing_hooks=data.get("marketing_hooks", []),
+                verdict=verdict,
+                raw_response=response_text
+            )
+
+        except json.JSONDecodeError as e:
+            print(f"JSON 파싱 실패: {e}")
+            return ReviewAnalysisResult(
+                verdict=Verdict.HOLD,
+                raw_response=response_text
+            )
+
+    def format_report(self, result: ReviewAnalysisResult) -> str:
+        """분석 결과 리포트 포맷
+
+        Args:
+            result: 분석 결과
+
+        Returns:
+            str: 포맷된 리포트
+        """
+        lines = [
+            "=" * 50,
+            "📊 리뷰 분석 결과 (Phase 5.1)",
+            "=" * 50,
+            "",
+            f"판정: {result.summary}",
+            "",
+        ]
+
+        # 치명적 결함
+        if result.critical_defects:
+            lines.append("🚨 치명적 결함")
+            lines.append("-" * 30)
+            for i, d in enumerate(result.critical_defects, 1):
+                freq_icon = "🔴" if d.frequency == "High" else "🟡" if d.frequency == "Medium" else "🟢"
+                lines.append(f"  {i}. {freq_icon} {d.issue} [{d.frequency}]")
+                if d.quote:
+                    lines.append(f"     💬 \"{d.quote}\"")
+            lines.append("")
+
+        # 개선 요청
+        if result.improvement_requests:
+            lines.append("🔧 공장 협의 사항")
+            lines.append("-" * 30)
+            for item in result.improvement_requests:
+                lines.append(f"  • {item}")
+            lines.append("")
+
+        # 마케팅 소구점
+        if result.marketing_hooks:
+            lines.append("💡 상세페이지 강조점")
+            lines.append("-" * 30)
+            for item in result.marketing_hooks:
+                lines.append(f"  • {item}")
+            lines.append("")
+
+        lines.append("=" * 50)
+        return "\n".join(lines)
+
+
+# 편의 함수
+def analyze_reviews(reviews_text: str, api_key: Optional[str] = None) -> ReviewAnalysisResult:
+    """간편 리뷰 분석 함수 (동기)
+
+    Args:
+        reviews_text: 분석할 리뷰 텍스트
+        api_key: Google API 키 (선택)
+
+    Returns:
+        ReviewAnalysisResult: 분석 결과
+    """
+    analyzer = ReviewAnalyzer(api_key=api_key)
+    return analyzer.analyze_sync(reviews_text)
+
+
+# Mock 분석기 (테스트용)
+class MockReviewAnalyzer:
+    """Mock 리뷰 분석기 (테스트/데모용)"""
+
+    def analyze_sync(self, reviews_text: str) -> ReviewAnalysisResult:
+        """Mock 분석 결과 반환"""
+        return ReviewAnalysisResult(
+            critical_defects=[
+                CriticalDefect(
+                    issue="세탁 후 수축 심함",
+                    frequency="High",
+                    quote="한 번 빨았더니 아기 옷이 됐어요"
+                ),
+                CriticalDefect(
+                    issue="실밥 마감 불량",
+                    frequency="Medium",
+                    quote="실밥이 좀 튀어나와 있어요"
+                ),
+            ],
+            improvement_requests=[
+                "세탁 시 수축률 개선 요청 (Pre-shrunk 처리)",
+                "실밥 마감 2중 검수 요청",
+                "사이즈 가이드 정확도 개선",
+            ],
+            marketing_hooks=[
+                "색감이 사진과 똑같음 (실사 강조)",
+                "예상보다 두꺼운 원단 (고급스러움)",
+                "빠른 배송 만족 (익일배송 강조)",
+            ],
+            verdict=Verdict.HOLD,
+            raw_response="Mock response"
+        )
+
+    def format_report(self, result: ReviewAnalysisResult) -> str:
+        """리포트 포맷"""
+        analyzer = ReviewAnalyzer.__new__(ReviewAnalyzer)
+        return analyzer.format_report(result)

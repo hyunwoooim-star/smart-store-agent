@@ -34,6 +34,8 @@ class ViolationType(Enum):
     FUNCTIONAL_COSMETIC = "기능성화장품 표현 (인증 필요)"
     CHILDREN_PRODUCT = "아동용 제품 주의사항"
     INTELLECTUAL_PROPERTY = "지식재산권 침해 가능성"
+    # v3.5.1 추가 (Gemini 피드백 - 의료기기법 위반)
+    MEDICAL_DEVICE = "의료기기 오인 표현 (인증 필요)"
 
 
 @dataclass
@@ -199,6 +201,34 @@ class PreFlightChecker:
             (r"(~풍|~스타일|~느낌|~감성).{0,5}(디자인|제품)", "디자인 카피 암시"),
         ]
 
+        # 11. 의료기기 오인 표현 (CRITICAL - 의료기기법 위반)
+        # 일반 공산품에 의학적 효능 암시 → 경찰서 가는 케이스
+        self.medical_device_patterns = [
+            # 치료/교정 관련
+            (r"(치료|치료용|치료기)", "치료 표현 (의료기기 인증 필요)"),
+            (r"(교정|교정기|교정용)", "교정 표현 (의료기기)"),
+            (r"(거북목|일자목).{0,5}(교정|개선|치료)", "거북목 교정 (의료기기)"),
+            (r"(자세).{0,5}(교정|개선|치료)", "자세 교정 (의료기기)"),
+            (r"(척추|허리|목).{0,5}(교정|치료)", "척추/허리 교정 (의료기기)"),
+
+            # 통증 관련
+            (r"(통증).{0,5}(완화|개선|치료|제거)", "통증 완화 (의료기기 효능)"),
+            (r"(근육통|관절통|두통|어깨통증|허리통증).{0,5}(완화|해소)", "통증 완화 표현"),
+
+            # 혈액/순환 관련
+            (r"(혈액순환|혈행).{0,5}(개선|촉진|증진)", "혈액순환 개선 (의료기기)"),
+            (r"(혈류|혈관).{0,5}(개선|확장)", "혈류 관련 (의료기기)"),
+
+            # 척추/디스크 관련
+            (r"(디스크|추간판).{0,5}(예방|치료|개선)", "디스크 관련 (의료기기)"),
+            (r"(허리디스크|목디스크)", "디스크 언급 (의료적 표현)"),
+
+            # 기타 의료적 표현
+            (r"(재활|물리치료|테라피)", "재활/치료 표현"),
+            (r"(의료용|의료기기|의료기)", "의료 관련 표현"),
+            (r"(적외선|원적외선).{0,5}(치료|효과)", "적외선 치료 (의료기기)"),
+        ]
+
     def check(self, text: str) -> PreFlightResult:
         """텍스트 검사 실행
 
@@ -333,6 +363,18 @@ class PreFlightChecker:
                     suggestion="캐릭터/디자인 라이선스 확인 필수. 무단 사용 시 법적 문제"
                 ))
 
+        # 11. 의료기기 오인 (CRITICAL - 가장 위험)
+        for pattern, desc in self.medical_device_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                violations.append(Violation(
+                    type=ViolationType.MEDICAL_DEVICE,
+                    matched_text=match.group(),
+                    pattern=desc,
+                    severity="high",
+                    suggestion="의료기기 인증 없이 사용 불가. '도움', '관리', '케어' 등으로 순화하세요."
+                ))
+
         # 결과 집계
         error_count = sum(1 for v in violations if v.severity == "high")
         warning_count = sum(1 for v in violations if v.severity in ("medium", "low"))
@@ -399,6 +441,10 @@ class PreFlightChecker:
             ViolationType.INTELLECTUAL_PROPERTY: [
                 "오리지널 디자인", "자체 제작", "독창적인 디자인",
                 "심플 디자인", "모던 스타일",
+            ],
+            ViolationType.MEDICAL_DEVICE: [
+                "자세 도움", "바른 자세 습관", "편안한 사용감",
+                "일상 관리", "컨디션 케어", "릴렉스",
             ],
         }
         return alternatives.get(violation.type, [])
