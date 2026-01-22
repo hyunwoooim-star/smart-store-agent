@@ -6,6 +6,10 @@ Phase 3.5 Pivot: Playwright → Apify SaaS 전환
 - Anti-bot 우회는 Apify가 처리
 - 로컬 리소스 0% 사용
 
+Phase 5.2: Supabase 캐싱 레이어 추가 (Gemini CTO 조언)
+- 동일 URL 재요청 시 캐시 사용 (3일 TTL)
+- API 비용 절감
+
 환경변수:
 - APIFY_API_TOKEN: Apify 계정의 Personal API Token
 - APIFY_ACTOR_ID: (선택) 사용할 Actor ID
@@ -51,13 +55,18 @@ class AlibabaScraper:
         print(product.price_cny, product.weight_kg)
     """
 
-    # 기본 Actor ID (1688 전용 스크래퍼들)
-    # 실제 사용 시 Apify Store에서 검색하여 적합한 Actor 선택
-    DEFAULT_ACTORS = [
-        "ecomscrape/1688-product-details-page-scraper",
-        "songd/1688-search-scraper",
-        "nice_dev/1688-product-scraper",
+    # 기본 Actor ID (1688 전용 스크래퍼들) - 무료 Actor 우선
+    # Gemini CTO 조언: 유료 Actor 대신 무료 Actor 시도 + Failover
+    FREE_ACTORS = [
+        "styleindexamerica/cn-1688-scraper",  # 무료
+        "songd/1688-search-scraper",           # 무료
     ]
+
+    PAID_ACTORS = [
+        "ecomscrape/1688-product-details-page-scraper",  # $20/월
+    ]
+
+    DEFAULT_ACTORS = FREE_ACTORS  # 무료 Actor 우선 시도
 
     def __init__(self, api_token: Optional[str] = None, actor_id: Optional[str] = None):
         """
@@ -90,58 +99,151 @@ class AlibabaScraper:
                 )
         return self._client
 
-    async def scrape(self, url: str) -> ScrapedProduct:
-        """1688 상품 페이지에서 정보 추출
+    async def scrape(self, url: str, try_fallback: bool = True, use_cache: bool = True) -> ScrapedProduct:
+        """1688 상품 페이지에서 정보 추출 (Failover + 캐싱 지원)
 
         Args:
             url: 1688 상품 상세페이지 URL
+            try_fallback: True면 첫 Actor 실패 시 다른 Actor 시도
+            use_cache: True면 Supabase 캐시 사용 (3일 TTL)
 
         Returns:
             ScrapedProduct: 추출된 상품 정보
         """
-        print(f"🚀 [Apify] 스크래핑 시작: {url}")
-        print(f"📦 Actor: {self.actor_id}")
+        # Phase 5.2: 캐시 체크 (Gemini CTO 조언)
+        if use_cache:
+            cached = self._get_from_cache(url)
+            if cached:
+                return cached
 
+        # 시도할 Actor 목록 구성
+        actors_to_try = [self.actor_id]
+        if try_fallback:
+            for actor in self.FREE_ACTORS:
+                if actor not in actors_to_try:
+                    actors_to_try.append(actor)
+
+        last_error = None
+
+        for actor_id in actors_to_try:
+            print(f"🚀 [Apify] 스크래핑 시작: {url}")
+            print(f"📦 Actor: {actor_id}")
+
+            try:
+                result = await self._try_scrape_with_actor(url, actor_id)
+                if result and result.price_cny > 0:
+                    # Phase 5.2: 성공한 결과 캐시 저장
+                    if use_cache:
+                        self._save_to_cache(url, result)
+                    return result
+                print(f"⚠️ [Apify] {actor_id} - 데이터 불충분, 다음 Actor 시도...")
+            except Exception as e:
+                last_error = e
+                error_msg = str(e)
+
+                # 유료화 에러 감지
+                if "rent" in error_msg.lower() or "paid" in error_msg.lower():
+                    print(f"💰 [Apify] {actor_id} - 유료 Actor입니다. 스킵...")
+                else:
+                    print(f"❌ [Apify] {actor_id} - 에러: {error_msg}")
+
+                continue
+
+        # 모든 Actor 실패 - Failover 결과 반환
+        print("🔄 [Apify] 모든 Actor 실패 - 수동 입력 모드로 전환 필요")
+        return ScrapedProduct(
+            url=url,
+            name="[수동 입력 필요] 스크래핑 실패",
+            price_cny=0.0,
+            raw_specs={"error": str(last_error) if last_error else "알 수 없는 오류"},
+        )
+
+    def _get_from_cache(self, url: str) -> Optional[ScrapedProduct]:
+        """Supabase 캐시에서 스크래핑 결과 조회"""
         try:
-            client = self._get_client()
+            from ..api.supabase_client import get_supabase_client
+            client = get_supabase_client()
 
-            # Actor 입력 설정 (Actor마다 다를 수 있음)
-            run_input = self._build_input(url)
+            if not client.is_connected():
+                return None
 
-            # Apify는 동기 라이브러리 → 비동기 래핑
-            run = await asyncio.to_thread(
-                client.actor(self.actor_id).call,
-                run_input=run_input,
-                timeout_secs=60,  # 최대 60초 대기
-            )
-
-            # 결과 데이터셋 가져오기
-            dataset = await asyncio.to_thread(
-                client.dataset(run["defaultDatasetId"]).list_items
-            )
-            items = dataset.items
-
-            if not items:
-                print("⚠️ [Apify] 반환 데이터 없음")
+            cached_data = client.get_cached_scrape(url)
+            if cached_data:
                 return ScrapedProduct(
-                    url=url,
-                    name="데이터 없음: Actor 반환값 비어있음",
-                    price_cny=0.0,
+                    url=cached_data.get("url", url),
+                    name=cached_data.get("name", ""),
+                    price_cny=cached_data.get("price_cny", 0.0),
+                    image_url=cached_data.get("image_url"),
+                    weight_kg=cached_data.get("weight_kg"),
+                    length_cm=cached_data.get("length_cm"),
+                    width_cm=cached_data.get("width_cm"),
+                    height_cm=cached_data.get("height_cm"),
+                    moq=cached_data.get("moq", 1),
+                    raw_specs=cached_data.get("raw_specs"),
                 )
-
-            raw_data = items[0]  # 첫 번째 결과 사용
-            print(f"✅ [Apify] 데이터 수신 완료")
-
-            # 데이터 매핑
-            return self._parse_result(url, raw_data)
-
         except Exception as e:
-            print(f"❌ [Apify] 에러: {str(e)}")
+            print(f"⚠️ [Cache] 조회 실패 (무시): {e}")
+        return None
+
+    def _save_to_cache(self, url: str, product: ScrapedProduct) -> bool:
+        """스크래핑 결과를 Supabase 캐시에 저장"""
+        try:
+            from ..api.supabase_client import get_supabase_client
+            client = get_supabase_client()
+
+            if not client.is_connected():
+                return False
+
+            data = {
+                "url": product.url,
+                "name": product.name,
+                "price_cny": product.price_cny,
+                "image_url": product.image_url,
+                "weight_kg": product.weight_kg,
+                "length_cm": product.length_cm,
+                "width_cm": product.width_cm,
+                "height_cm": product.height_cm,
+                "moq": product.moq,
+                "raw_specs": product.raw_specs,
+            }
+            return client.save_scrape_cache(url, data)
+        except Exception as e:
+            print(f"⚠️ [Cache] 저장 실패 (무시): {e}")
+        return False
+
+    async def _try_scrape_with_actor(self, url: str, actor_id: str) -> ScrapedProduct:
+        """단일 Actor로 스크래핑 시도"""
+        client = self._get_client()
+
+        # Actor 입력 설정 (Actor마다 다를 수 있음)
+        run_input = self._build_input(url)
+
+        # Apify는 동기 라이브러리 → 비동기 래핑
+        run = await asyncio.to_thread(
+            client.actor(actor_id).call,
+            run_input=run_input,
+            timeout_secs=60,  # 최대 60초 대기
+        )
+
+        # 결과 데이터셋 가져오기
+        dataset = await asyncio.to_thread(
+            client.dataset(run["defaultDatasetId"]).list_items
+        )
+        items = dataset.items
+
+        if not items:
+            print("⚠️ [Apify] 반환 데이터 없음")
             return ScrapedProduct(
                 url=url,
-                name=f"스크래핑 실패: {str(e)}",
+                name="데이터 없음: Actor 반환값 비어있음",
                 price_cny=0.0,
             )
+
+        raw_data = items[0]  # 첫 번째 결과 사용
+        print(f"✅ [Apify] 데이터 수신 완료")
+
+        # 데이터 매핑
+        return self._parse_result(url, raw_data)
 
     def _build_input(self, url: str) -> Dict[str, Any]:
         """Actor 입력 구성 (Actor마다 필드명이 다를 수 있음)"""

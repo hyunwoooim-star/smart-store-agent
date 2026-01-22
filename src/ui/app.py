@@ -273,7 +273,7 @@ with tab1:
                 st.write(f"**💰 총 비용: {result.total_cost:,}원**")
 
 # ============================================================
-# TAB 2: 1688 스크래핑 (Apify API)
+# TAB 2: 1688 스크래핑 (Apify API + Failover UI)
 # ============================================================
 with tab2:
     st.header("🇨🇳 1688 상품 정보 추출")
@@ -292,68 +292,191 @@ with tab2:
         st.success("✅ Apify API 연결됨")
         use_mock = False
 
-    # URL 입력
-    url_input = st.text_input(
-        "1688 상품 URL",
-        placeholder="https://detail.1688.com/offer/xxxxxxxxx.html",
-        key="scrape_url"
+    # 입력 모드 선택 (Gemini CTO 조언: Failover UI)
+    input_mode = st.radio(
+        "📥 입력 방식",
+        options=["🤖 자동 스크래핑", "✍️ 수동 입력"],
+        horizontal=True,
+        index=0,
+        help="스크래핑 실패 시 수동 입력으로 전환하세요"
     )
 
-    # Mock 모드 체크박스
-    use_mock_checkbox = st.checkbox("🧪 테스트 모드 (Mock 데이터 사용)", value=use_mock)
+    if input_mode == "🤖 자동 스크래핑":
+        # URL 입력
+        url_input = st.text_input(
+            "1688 상품 URL",
+            placeholder="https://detail.1688.com/offer/xxxxxxxxx.html",
+            key="scrape_url"
+        )
 
-    if st.button("🔍 상품 정보 추출", type="primary", key="scrape_btn"):
-        if not url_input and not use_mock_checkbox:
-            st.error("URL을 입력하세요.")
-        else:
-            with st.spinner("⏳ 상품 정보 추출 중... (5~30초 소요)"):
-                try:
-                    from src.adapters.alibaba_scraper import scrape_1688, AlibabaScraper, MockAlibabaScraper
+        # Mock 모드 체크박스
+        use_mock_checkbox = st.checkbox("🧪 테스트 모드 (Mock 데이터 사용)", value=use_mock)
 
-                    # 비동기 함수 실행
-                    if use_mock_checkbox:
-                        scraped = asyncio.run(scrape_1688(url_input or "mock", use_mock=True))
-                    else:
-                        scraped = asyncio.run(scrape_1688(url_input, use_mock=False))
+        if st.button("🔍 상품 정보 추출", type="primary", key="scrape_btn"):
+            if not url_input and not use_mock_checkbox:
+                st.error("URL을 입력하세요.")
+            else:
+                with st.spinner("⏳ 상품 정보 추출 중... (무료 Actor 순차 시도)"):
+                    try:
+                        from src.adapters.alibaba_scraper import scrape_1688, AlibabaScraper, MockAlibabaScraper
 
-                    # 결과 표시
-                    st.markdown("---")
-                    st.subheader("📦 추출 결과")
+                        # 비동기 함수 실행
+                        if use_mock_checkbox:
+                            scraped = asyncio.run(scrape_1688(url_input or "mock", use_mock=True))
+                        else:
+                            scraped = asyncio.run(scrape_1688(url_input, use_mock=False))
 
-                    result_col1, result_col2 = st.columns(2)
+                        # 스크래핑 실패 감지 (Failover 트리거)
+                        scrape_failed = (
+                            scraped.price_cny == 0 or
+                            "실패" in scraped.name or
+                            "수동 입력" in scraped.name
+                        )
 
-                    with result_col1:
-                        st.markdown("**기본 정보**")
-                        st.write(f"- 상품명: {scraped.name}")
-                        st.write(f"- 가격: ¥{scraped.price_cny}")
-                        st.write(f"- MOQ: {scraped.moq}개")
+                        if scrape_failed:
+                            # Failover UI 표시 (Gemini CTO 조언)
+                            st.markdown("---")
+                            st.warning("""
+                            😅 **죄송합니다! 1688 보안 때문에 데이터를 못 가져왔어요.**
 
-                        if scraped.image_url:
-                            st.image(scraped.image_url, width=200)
+                            걱정 마세요! **가격과 무게만 알려주시면** 마진 분석은 정상 진행됩니다.
+                            """)
 
-                    with result_col2:
-                        st.markdown("**물류 정보**")
-                        st.write(f"- 무게: {scraped.weight_kg or '추출 실패'} kg")
-                        st.write(f"- 사이즈: {scraped.length_cm or '?'} x {scraped.width_cm or '?'} x {scraped.height_cm or '?'} cm")
+                            # 에러 상세 (접은 상태)
+                            with st.expander("🔍 오류 상세 보기"):
+                                if scraped.raw_specs and "error" in scraped.raw_specs:
+                                    st.code(scraped.raw_specs["error"])
 
-                        if scraped.raw_specs:
-                            st.markdown("**원본 스펙**")
-                            for key, value in list(scraped.raw_specs.items())[:5]:
-                                st.write(f"- {key}: {value}")
+                            # 수동 입력 폼으로 유도
+                            st.info("👆 위의 **'수동 입력'** 모드를 선택해서 직접 입력하세요!")
 
-                    # 마진 분석 연동 버튼
-                    if scraped.price_cny > 0:
+                            # 세션에 URL 저장 (수동 입력 시 참조용)
+                            st.session_state['failed_url'] = url_input
+
+                        else:
+                            # 성공 - 결과 표시
+                            st.markdown("---")
+                            st.subheader("📦 추출 결과")
+
+                            result_col1, result_col2 = st.columns(2)
+
+                            with result_col1:
+                                st.markdown("**기본 정보**")
+                                st.write(f"- 상품명: {scraped.name}")
+                                st.write(f"- 가격: ¥{scraped.price_cny}")
+                                st.write(f"- MOQ: {scraped.moq}개")
+
+                                if scraped.image_url:
+                                    st.image(scraped.image_url, width=200)
+
+                            with result_col2:
+                                st.markdown("**물류 정보**")
+                                st.write(f"- 무게: {scraped.weight_kg or '추출 실패'} kg")
+                                st.write(f"- 사이즈: {scraped.length_cm or '?'} x {scraped.width_cm or '?'} x {scraped.height_cm or '?'} cm")
+
+                                if scraped.raw_specs:
+                                    st.markdown("**원본 스펙**")
+                                    for key, value in list(scraped.raw_specs.items())[:5]:
+                                        st.write(f"- {key}: {value}")
+
+                            # 마진 분석 연동 버튼
+                            st.markdown("---")
+                            st.info("💡 위 데이터로 마진 분석을 하려면 '마진 분석' 탭에서 직접 입력하세요.")
+
+                            # 세션에 데이터 저장 (추후 탭 간 연동용)
+                            st.session_state['scraped_product'] = scraped
+
+                    except ImportError as e:
+                        st.error(f"패키지 오류: {e}")
+                        st.code("pip install apify-client", language="bash")
+                    except Exception as e:
+                        # 예외 발생 시에도 Failover UI
                         st.markdown("---")
-                        st.info("💡 위 데이터로 마진 분석을 하려면 '마진 분석' 탭에서 직접 입력하세요.")
+                        st.warning(f"""
+                        😅 **스크래핑 중 오류가 발생했어요.**
 
-                        # 세션에 데이터 저장 (추후 탭 간 연동용)
-                        st.session_state['scraped_product'] = scraped
+                        오류: `{str(e)[:100]}`
 
-                except ImportError as e:
-                    st.error(f"패키지 오류: {e}")
-                    st.code("pip install apify-client", language="bash")
-                except Exception as e:
-                    st.error(f"추출 실패: {str(e)}")
+                        걱정 마세요! **'수동 입력'** 모드로 직접 입력하시면 됩니다.
+                        """)
+
+    else:
+        # 수동 입력 모드 (Failover UI)
+        st.markdown("### ✍️ 수동 입력 모드")
+        st.markdown("1688 페이지에서 직접 확인한 정보를 입력하세요.")
+
+        # 이전 실패 URL 표시
+        if 'failed_url' in st.session_state:
+            st.caption(f"🔗 참조 URL: {st.session_state['failed_url']}")
+
+        manual_col1, manual_col2 = st.columns(2)
+
+        with manual_col1:
+            manual_name = st.text_input("상품명 (중국어/한글)", value="", key="manual_name")
+            manual_price = st.number_input(
+                "💰 도매가 (위안, ¥)",
+                min_value=0.1,
+                max_value=100000.0,
+                value=45.0,
+                step=1.0,
+                key="manual_price",
+                help="1688 페이지에서 가격 확인"
+            )
+            manual_moq = st.number_input(
+                "📦 MOQ (최소주문량)",
+                min_value=1,
+                max_value=10000,
+                value=50,
+                step=1,
+                key="manual_moq"
+            )
+
+        with manual_col2:
+            manual_weight = st.number_input(
+                "⚖️ 무게 (kg)",
+                min_value=0.01,
+                max_value=100.0,
+                value=1.0,
+                step=0.1,
+                key="manual_weight",
+                help="모르면 대략적인 값 입력"
+            )
+
+            st.markdown("**📐 사이즈 (cm)** - 모르면 기본값 사용")
+            size_col1, size_col2, size_col3 = st.columns(3)
+            with size_col1:
+                manual_length = st.number_input("가로", min_value=1, value=30, key="manual_length")
+            with size_col2:
+                manual_width = st.number_input("세로", min_value=1, value=20, key="manual_width")
+            with size_col3:
+                manual_height = st.number_input("높이", min_value=1, value=10, key="manual_height")
+
+        # 저장 버튼
+        if st.button("💾 정보 저장 → 마진 분석으로", type="primary", key="manual_save_btn"):
+            from src.adapters.alibaba_scraper import ScrapedProduct
+
+            manual_product = ScrapedProduct(
+                url=st.session_state.get('failed_url', 'manual_input'),
+                name=manual_name or "수동 입력 상품",
+                price_cny=manual_price,
+                weight_kg=manual_weight,
+                length_cm=manual_length,
+                width_cm=manual_width,
+                height_cm=manual_height,
+                moq=manual_moq,
+            )
+
+            st.session_state['scraped_product'] = manual_product
+
+            st.success(f"""
+            ✅ **저장 완료!**
+
+            - 상품명: {manual_product.name}
+            - 가격: ¥{manual_product.price_cny}
+            - 무게: {manual_product.weight_kg}kg
+
+            **'마진 분석' 탭**에서 계속 진행하세요!
+            """)
 
 # ============================================================
 # TAB 3: Pre-Flight Check (금지어 검사)
