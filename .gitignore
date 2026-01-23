@@ -44,6 +44,9 @@ data/imports/*.csv
 data/analysis_results/*.json
 data/reports/*.md
 
+# 출력 파일 (엑셀 등)
+output/
+
 # 로그
 *.log
 logs/

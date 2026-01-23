@@ -272,6 +272,85 @@ with tab1:
                 st.markdown("---")
                 st.write(f"**💰 총 비용: {result.total_cost:,}원**")
 
+        # ============================================================
+        # 엑셀 다운로드 버튼 (Phase 6-1)
+        # ============================================================
+        st.markdown("---")
+        st.subheader("📥 엑셀 내보내기")
+
+        try:
+            from src.generators.excel_generator import NaverExcelGenerator, NaverProductData
+            import io
+
+            # NaverProductData 생성
+            naver_product = NaverProductData(
+                product_name=product_name,
+                sale_price=target_price,
+                stock_quantity=999,
+                origin="중국",
+                shipping_fee=int(domestic_shipping),
+                cost_price=result.total_cost,
+                margin_rate=result.margin_percent,
+                breakeven_price=result.breakeven_price,
+                risk_level=result.risk_level.value,
+                source_price_cny=price_cny,
+                moq=moq,
+            )
+
+            # 세션에 분석 결과 저장 (누적)
+            if "analyzed_products" not in st.session_state:
+                st.session_state.analyzed_products = []
+
+            # 현재 상품 추가 버튼
+            col_add, col_download, col_clear = st.columns([1, 1, 1])
+
+            with col_add:
+                if st.button("➕ 목록에 추가", key="add_to_list"):
+                    st.session_state.analyzed_products.append(naver_product)
+                    st.success(f"✅ '{product_name}' 추가됨! (총 {len(st.session_state.analyzed_products)}개)")
+
+            with col_download:
+                if st.session_state.analyzed_products:
+                    # 엑셀 파일 생성 (메모리)
+                    generator = NaverExcelGenerator()
+
+                    # 임시 파일 생성
+                    import tempfile
+                    import os as temp_os
+
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                        tmp_path = tmp.name
+
+                    generator.generate(st.session_state.analyzed_products, tmp_path)
+
+                    with open(tmp_path, "rb") as f:
+                        excel_data = f.read()
+
+                    temp_os.unlink(tmp_path)
+
+                    st.download_button(
+                        label=f"📥 엑셀 다운로드 ({len(st.session_state.analyzed_products)}개)",
+                        data=excel_data,
+                        file_name="naver_products.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_excel"
+                    )
+
+            with col_clear:
+                if st.button("🗑️ 목록 초기화", key="clear_list"):
+                    st.session_state.analyzed_products = []
+                    st.info("목록이 초기화되었습니다.")
+
+            # 현재 목록 표시
+            if st.session_state.analyzed_products:
+                with st.expander(f"📋 현재 목록 ({len(st.session_state.analyzed_products)}개)", expanded=False):
+                    for idx, p in enumerate(st.session_state.analyzed_products, 1):
+                        risk_emoji = {"safe": "🟢", "warning": "🟡", "danger": "🔴"}.get(p.risk_level, "⚪")
+                        st.write(f"{idx}. {p.product_name} | {p.sale_price:,}원 | {p.margin_rate:.1f}% {risk_emoji}")
+
+        except ImportError as e:
+            st.warning(f"⚠️ 엑셀 생성 기능을 사용하려면 openpyxl을 설치하세요: `pip install openpyxl`")
+
 # ============================================================
 # TAB 2: 1688 스크래핑 (Apify API + Failover UI)
 # ============================================================
