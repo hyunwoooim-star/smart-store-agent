@@ -1,131 +1,99 @@
-# Smart Store Agent - 현재 상태 (2026-01-22)
+# Smart Store Agent - 현재 상태
 
-## 📍 현재 위치: Phase 3.5 완료 (Apify 전환)
+**최종 업데이트**: 2026-01-23
+**버전**: v3.5.2
 
-### GitHub
+---
+
+## 현재 위치: Phase 5.2 완료
+
+### 전체 진행도
+```
+Phase 1   [##########] 100%  핵심 엔진 개발
+Phase 2   [##########] 100%  Streamlit 대시보드
+Phase 3.5 [##########] 100%  1688 스크래핑 (Apify)
+Phase 4   [##########] 100%  Pre-Flight Check
+Phase 5.2 [##########] 100%  Pydantic + Supabase 캐싱
+Phase 6   [          ]   0%  비즈니스 확장 (예정)
+```
+
+---
+
+## 완료된 작업
+
+### Phase 1: 핵심 엔진
+- `margin_calculator.py` - 마진 계산 (부피무게, 관부가세, BEP)
+- `data_importer.py` - 아이템스카우트 엑셀 파싱
+- `keyword_filter.py` - 부정 키워드 필터링
+- `gemini_analyzer.py` - AI 리뷰 분석
+- `spec_validator.py` - 스펙 검증
+- `gap_reporter.py` - 리포트 생성
+
+### Phase 2: Streamlit 대시보드
+- `src/ui/app.py` - 웹 UI (3개 탭)
+
+### Phase 3.5: 1688 스크래핑
+- `alibaba_scraper.py` - Apify API 기반 (WSL 이슈 해결)
+- 전략 변경: browser-use → Playwright → **Apify API**
+
+### Phase 4: Pre-Flight Check
+- `preflight_check.py` - 네이버 금지어/위험 표현 검사
+
+### Phase 5.1: 리뷰 분석
+- `review_analyzer.py` - 불만 패턴 TOP 5, 개선 카피라이팅
+
+### Phase 5.2: 안정성 강화
+- `validators.py` - Pydantic 모델 + Retry 로직
+- `supabase_client.py` - 캐싱 레이어 (API 비용 절감)
+
+---
+
+## 실행 방법
+
+### 1. 환경 설정
+```bash
+# 의존성 설치
+pip install -r requirements.txt
+
+# .env 파일 생성
+cp .env.example .env
+# API 키 입력
+```
+
+### 2. Streamlit 실행
+```bash
+streamlit run src/ui/app.py
+```
+
+### 3. CLI 실행
+```bash
+# 데모
+python -m src.cli.commands demo
+
+# 마진 계산
+python -m src.cli.commands calc --price-cny 45 --weight 2.5 --target-price 45000
+```
+
+---
+
+## 필수 API 키
+
+| 키 | 용도 | 필수 |
+|----|------|------|
+| `APIFY_API_TOKEN` | 1688 스크래핑 | O |
+| `GOOGLE_API_KEY` | Gemini 분석 | O |
+| `SUPABASE_URL` | 데이터베이스 | 선택 |
+| `SUPABASE_KEY` | 데이터베이스 | 선택 |
+
+---
+
+## 다음 단계 (Phase 6)
+
+1. 경쟁사 가격 모니터링
+2. 자동 상품 등록 파이프라인 (후순위)
+3. Slack/Email 알림 연동
+
+---
+
+## GitHub
 https://github.com/hyunwoooim-star/smart-store-agent
-
-### 클론 명령어
-```bash
-git clone https://github.com/hyunwoooim-star/smart-store-agent.git
-cd smart-store-agent
-```
-
----
-
-## ✅ 완료된 작업
-
-### Phase 1: 핵심 엔진 (완료)
-- margin_calculator, data_importer, keyword_filter 등 6개 모듈
-- LandedCostCalculator (구매대행 수수료, 관부가세 포함)
-
-### Phase 2: Streamlit 대시보드 (완료)
-- `streamlit_app.py`
-
-### Phase 3.5: 1688 스크래퍼 (전략 전환 완료)
-- ❌ ~~browser-use~~ (WSL 30초 타임아웃)
-- ❌ ~~Playwright + Gemini~~ (WSL Page crashed)
-- ✅ **Apify API로 전환** (클라우드 스크래핑)
-
-**변경사항:**
-- `alibaba_scraper.py` → Apify Client 기반으로 전면 재작성
-- `test_browser.py` → 브라우저 옵션 제거, API 전용으로 단순화
-- `requirements.txt` → playwright/browser-use 제거, apify-client 추가
-- `.env.example` → APIFY_API_TOKEN 추가
-
----
-
-## 🟢 현재 상태
-
-### WSL 브라우저 이슈 해결됨
-- 로컬 브라우저 필요 없음
-- Apify 클라우드에서 스크래핑 처리
-- Anti-bot 우회는 Apify가 담당
-
-### 남은 작업
-1. **Apify 계정 설정**
-   - https://console.apify.com/sign-up 가입
-   - Settings > Integrations에서 API Token 복사
-   - `.env` 파일에 `APIFY_API_TOKEN=apify_api_xxx` 추가
-
-2. **실제 1688 URL 테스트**
-   ```bash
-   python test_browser.py --url "https://detail.1688.com/offer/xxx.html"
-   ```
-
-3. **마진 계산 통합 테스트**
-
----
-
-## 📁 주요 파일 위치
-
-| 파일 | 설명 |
-|------|------|
-| `src/adapters/alibaba_scraper.py` | 1688 스크래퍼 (**Apify API**) |
-| `test_browser.py` | 스크래퍼 테스트 CLI |
-| `src/domain/logic.py` | LandedCostCalculator |
-| `streamlit_app.py` | 대시보드 |
-| `.env` | API 키 (**APIFY_API_TOKEN** 필수) |
-
----
-
-## 🛠️ 환경 설정
-
-### 1. 의존성 설치
-```bash
-pip install apify-client python-dotenv
-```
-
-### 2. API Token 설정
-```ini
-# .env 파일
-APIFY_API_TOKEN=apify_api_xxxxxxxxxxxx
-```
-
-### 3. 테스트 실행
-```bash
-# Mock 테스트 (API 키 없이)
-python test_browser.py --mock
-
-# 실제 테스트 (Apify API 키 필요)
-python test_browser.py --url "https://detail.1688.com/offer/xxx.html"
-```
-
----
-
-## 📋 Phase 3.5 전략 변경 이력
-
-| 날짜 | 시도 | 결과 |
-|------|------|------|
-| 01-20 | browser-use | ❌ WSL 30초 타임아웃 |
-| 01-21 | Playwright + Gemini | ❌ Page crashed (메모리) |
-| 01-22 | **Apify API** | ✅ **채택** |
-
-### Apify 선택 이유
-1. **안정성**: 클라우드 실행, 로컬 리소스 0%
-2. **Anti-bot 우회**: Apify가 프록시/CAPTCHA 처리
-3. **비용**: 무료 플랜으로 테스트 가능
-4. **속도**: WSL 환경 제약 없음
-
----
-
-## 💰 예상 비용 (Apify)
-
-| 사용량 | 월 비용 |
-|--------|---------|
-| 테스트 (100건) | 무료 |
-| 소규모 (500건) | ~$5 |
-| 중규모 (1000건) | ~$10 |
-
----
-
-## 💡 다음 단계 (Phase 4 예정)
-
-1. Pre-Flight Check (네이버 금지어 검사)
-2. 자동 상품 등록 파이프라인
-3. Streamlit 대시보드에 1688 스크래핑 통합
-
----
-
-*마지막 업데이트: 2026-01-22*
-*전략 변경: Playwright → Apify API*

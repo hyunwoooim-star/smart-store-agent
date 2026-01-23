@@ -15,7 +15,25 @@
       "Bash(gh auth:*)",
       "Bash(gh repo create:*)",
       "Bash(git branch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(streamlit run:*)",
+      "Bash(pip install:*)",
+      "Bash(powershell -Command \"cd ''C:\\\\Users\\\\임현우\\\\Desktop\\\\현우 작업폴더\\\\smart''; python -m pip install streamlit\")",
+      "Bash(powershell -Command \"pip install streamlit\")",
+      "Bash(wsl pip3 install:*)",
+      "Bash(wsl bash:*)",
+      "Bash(py:*)",
+      "Bash(cmd /c \"python --version\")",
+      "Bash(powershell:*)",
+      "Bash(wsl python3:*)",
+      "Bash(wsl which:*)",
+      "Bash(wsl python3.11:*)",
+      "Bash(wsl dpkg:*)",
+      "Bash(source ~/smart-venv/.venv/bin/activate)",
+      "Bash(pip show:*)",
+      "Bash(wsl -e bash:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)"
     ]
   }
 }

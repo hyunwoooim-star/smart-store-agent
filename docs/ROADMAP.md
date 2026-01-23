@@ -1,262 +1,154 @@
-# Smart Store Agent - 전체 로드맵 계획서 v3.2
+# Smart Store Agent - 전체 로드맵
 
-## 📊 현재 상태 (Phase 1 완료)
-
+**버전**: v3.5.2
+**최종 업데이트**: 2026-01-23
 **GitHub**: https://github.com/hyunwoooim-star/smart-store-agent
 
-### 완료된 작업
-- [x] 핵심 모듈 6개 구현
-- [x] Supabase 연동 준비
-- [x] 모니터링/알림 시스템
-- [x] CLI 인터페이스
-- [x] GitHub 저장소 생성
-- [x] **MarginConfig 설정 주입 방식 적용 (v3.2)**
-- [x] **마스터 시스템 프롬프트 적용 (v3.2)**
-- [x] **Browser-Use + Streamlit 의존성 추가**
+---
 
-### Gemini 코드 리뷰 결과 (2026-01-20)
-- ✅ 마진 계산기: 부피무게, 숨겨진 비용, BEP 로직 정확
-- ✅ Gemini 분석기: 구조화된 프롬프트, 안전장치 완비
-- ✅ 오케스트레이션: 파이프라인 매끄러움, 확장성 좋음
+## 프로젝트 목표
+"틈새 시장 발굴 → 소싱 검증 → 콘텐츠 생성" 과정 자동화
 
 ---
 
-## 🛠 기술 스택 (2026 최신)
+## 진행 현황
 
-| 구분 | 기술 | 용도 |
+```
+[완료] Phase 1   - 핵심 엔진 개발
+[완료] Phase 2   - Streamlit 대시보드
+[완료] Phase 3.5 - 1688 스크래핑 (Apify API)
+[완료] Phase 4   - Pre-Flight Check (금지어 검사)
+[완료] Phase 5.2 - Pydantic + Supabase 캐싱
+[예정] Phase 6   - 비즈니스 확장
+```
+
+---
+
+## Phase 1: 핵심 엔진 (완료)
+
+### 구현 모듈
+| 모듈 | 파일 | 기능 |
 |------|------|------|
-| **브라우저 에이전트** | [Browser-Use](https://github.com/browser-use/browser-use) | 1688 자동 소싱 (마우스/키보드 AI 제어) |
-| **웹 프레임워크** | Streamlit | 1인용 대시보드 (30분 완성) |
-| **데이터 검증** | Pydantic | AI 출력 JSON 형식 검사 |
-| **코딩 파트너** | Claude Code CLI | 터미널에서 파일 수정/생성 |
-| **AI 분석** | Gemini 1.5 Flash + Vision | 리뷰 분석 + 이미지 스펙 추출 |
+| 마진 계산기 | `margin_calculator.py` | 부피무게, 관부가세, 손익분기 |
+| 데이터 임포터 | `data_importer.py` | 아이템스카우트 엑셀 파싱 |
+| 키워드 필터 | `keyword_filter.py` | 부정 키워드 기반 필터링 |
+| Gemini 분석기 | `gemini_analyzer.py` | AI 리뷰 분석 |
+| 스펙 검증기 | `spec_validator.py` | 카피 vs 실제 스펙 검증 |
+| 리포트 생성기 | `gap_reporter.py` | opportunity_report.md |
 
 ---
 
-## 🚀 전체 로드맵
+## Phase 2: Streamlit 대시보드 (완료)
 
-### Phase 1.5: 통합 테스트 및 실전 검증 (현재)
-> Gemini가 권장한 "진짜 돌려보기"
+### 3개 탭 구성
+1. **마진 분석** - 상품 정보 입력 → 손익분기 계산
+2. **1688 스크래핑** - URL 입력 → 상품 정보 추출
+3. **Pre-Flight Check** - 금지어/위험 표현 검사
 
-#### 체크리스트
-- [ ] `.env` 파일 생성 및 API 키 입력
-- [ ] `pip install -r requirements.txt` 실행
-- [ ] `playwright install` 실행 (브라우저 엔진)
-- [ ] **Supabase RLS 정책 확인** (중요!)
-- [ ] Mock 테스트: `python src/main.py --demo`
-- [ ] 실전 테스트: 캠핑의자 시나리오
-- [ ] DB 저장 확인
-
-#### 검증 포인트
-- [ ] 부피무게 4.0kg 적용 확인
-- [ ] 마진율 음수(-XX%) 출력 확인
-- [ ] output/ 폴더 리포트 생성 확인
-- [ ] Supabase 테이블 데이터 확인
-
----
-
-### Phase 2: Streamlit 대시보드 (1-2일)
-> "날개를 달자" - 간편한 웹 UI
-
-#### 선택 이유
-- 기존 Python 클래스 그대로 import 가능
-- Flutter 대비 개발 속도 3배 이상 빠름
-- 1인 사용 도구에 최적
-
-#### 핵심 기능 (우선순위순)
-1. **변수 설정 패널** (Gemini 권장 - 최우선)
-   - 환율 입력 (기본값: 190)
-   - 배대지 요금 조정
-   - 관세율 수정
-   - 광고비/반품비 비율 조정
-
-2. **마진 계산기 폼**
-   - 상품명, 도매가, 무게, 크기 입력
-   - 실시간 마진 계산 결과
-
-3. **결과 시각화**
-   - 마진율 게이지 (적/황/녹)
-   - 비용 구성 파이차트
-   - Go/No-Go 판정
-
-4. **분석 히스토리**
-   - Supabase에서 과거 분석 조회
-   - 리포트 다운로드
-
----
-
-### Phase 3: Browser-Use 자동화 (2-3주)
-> "눈을 달자" - AI 브라우저 자동화
-
-#### Browser-Use란?
-- **AI가 브라우저를 "보고(Vision)", "클릭"하고, "입력"하는 자동화**
-- API 없는 사이트(1688, 타오바오)도 자동화 가능
-- Playwright 기반 + LLM(Gemini/OpenAI) 연동
-- WebVoyager 벤치마크 89.1% 정확도
-
-#### 기능 계획
-
-| 기능 | 설명 | 우선순위 |
-|------|------|----------|
-| **1688 최저가 검색** | AI가 1688 들어가서 최저가 공장 3곳 찾기 | 높음 |
-| **이미지 스펙 추출** | Gemini Vision으로 상품 이미지에서 스펙 추출 | 높음 |
-| 가격 모니터링 | 경쟁사 가격 변동 추적 | 중간 |
-| 리뷰 수집 자동화 | 네이버 리뷰 자동 수집 | 중간 |
-
-#### Browser-Use 예시 코드
-```python
-from browser_use import Agent
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-# Gemini 모델 설정
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-
-# AI 브라우저 에이전트 생성
-agent = Agent(
-    task="1688.com에서 '캠핑의자' 검색하고 가격이 45위안 이하인 공장 3곳 찾아줘. 각 공장의 이름, 가격, MOQ를 정리해줘.",
-    llm=llm
-)
-
-# 실행 (AI가 알아서 클릭, 스크롤, 입력)
-result = await agent.run()
-print(result)
-```
-
-#### Chrome MCP vs Browser-Use 비교
-
-| 항목 | Claude Code + Chrome MCP | Browser-Use |
-|------|-------------------------|-------------|
-| **용도** | 개발 중 페이지 분석 | 운영 자동화 |
-| **장점** | 실시간 상호작용, 빠름 | 서버에서 자동 실행 가능 |
-| **단점** | 수동 조작 필요 | 느림 (사람처럼 동작) |
-| **추천** | 코드 작성 시 | 반복 작업 자동화 |
-
----
-
-### Phase 4: 비즈니스 확장 (4주+)
-> 수익화 및 고도화
-
-| 기능 | 설명 | Gemini 제언 |
-|------|------|-------------|
-| **Pre-Flight Check** | 네이버 금지어 검사 | 등록 전 필수 검증 |
-| **상세페이지 자동 생성** | Gemini로 카피 + 캔바/미리캔버스 연동 | - |
-| 멀티 스토어 지원 | 여러 계정 관리 | - |
-| 자동 상품 등록 | Commerce API | 검수 로직 까다로움 주의 |
-| 재고 관리 | 1688 ↔ 스마트스토어 | - |
-| 정산 리포트 | 월별 자동 집계 | - |
-
----
-
-## 📅 수정된 일정
-
-```
-Week 1: Phase 1.5 (통합 테스트) ← 현재
-        - .env 설정
-        - Supabase RLS 확인
-        - 캠핑의자 테스트
-
-Week 2: Phase 2 (Streamlit 대시보드)
-        - 변수 설정 패널 (최우선)
-        - 마진 계산 폼
-        - 결과 시각화
-
-Week 3-4: Phase 3 (Browser-Use 자동화)
-        - 1688 최저가 검색 자동화
-        - Gemini Vision 이미지 스펙 추출
-
-Week 5+: Phase 4 (확장)
-        - Pre-Flight Check
-        - 상세페이지 자동 생성
-        - 자동 상품 등록
-```
-
----
-
-## ⚡ 즉시 실행 가능한 작업
-
-### Step 1: .env 파일 생성
+### 실행
 ```bash
-cp .env.example .env
-# 편집기로 열어서 실제 키 입력
-```
-
-### Step 2: 의존성 설치
-```bash
-pip install -r requirements.txt
-playwright install
-```
-
-### Step 3: Supabase RLS 확인 (중요!)
-1. Supabase 대시보드 접속
-2. Table Editor → analyses 테이블
-3. RLS가 켜져있다면:
-   - 테스트용: RLS 끄기
-   - 또는: INSERT 정책 추가
-
-### Step 4: 테스트 실행
-```bash
-# Mock 테스트
-python src/main.py --demo
-
-# 실전 테스트
-python src/main.py \
-  --product "초경량 릴렉스 캠핑의자" \
-  --category "캠핑/레저" \
-  --price-cny 45 \
-  --weight 2.5 \
-  --dimensions "80x20x15" \
-  --moq 50 \
-  --target-price 45000
+streamlit run src/ui/app.py
 ```
 
 ---
 
-## 🔗 보고서용 링크
+## Phase 3.5: 1688 스크래핑 (완료)
 
-| 항목 | 링크 |
+### 전략 변경 이력
+| 시도 | 결과 | 이유 |
+|------|------|------|
+| browser-use | X | WSL 30초 타임아웃 |
+| Playwright + Gemini | X | Page crashed (메모리) |
+| **Apify API** | O | 클라우드 스크래핑, 안정적 |
+
+### 최종 구현
+- `alibaba_scraper.py` - Apify Client 기반
+- 로컬 브라우저 불필요, Anti-bot 우회는 Apify가 처리
+
+---
+
+## Phase 4: Pre-Flight Check (완료)
+
+### 기능
+- 네이버 금지어 검사
+- 의료/건강 효능 주장 탐지
+- 최상급/과장 표현 탐지
+- 안전한 대안 제시
+
+### 파일
+- `preflight_check.py`
+
+---
+
+## Phase 5: 리뷰 분석 + 안정성 (완료)
+
+### Phase 5.1: 리뷰 분석
+- `review_analyzer.py`
+- 불만 패턴 TOP 5 추출
+- 개선 카피라이팅 제안
+- 공장 요청 사항 도출
+
+### Phase 5.2: 안정성 강화
+- `validators.py` - Pydantic 모델 + Retry 로직
+- `supabase_client.py` - 캐싱 레이어 (API 비용 절감)
+
+---
+
+## Phase 6: 비즈니스 확장 (예정)
+
+### 우선순위
+| 순위 | 기능 | 비즈니스 가치 |
+|------|------|--------------|
+| 1 | 경쟁사 가격 모니터링 | 높음 |
+| 2 | Slack/Email 알림 | 중간 |
+| 3 | 자동 상품 등록 | 높음 (리스크도 높음) |
+
+---
+
+## 기술 스택
+
+| 구분 | 기술 |
 |------|------|
-| **GitHub 저장소** | https://github.com/hyunwoooim-star/smart-store-agent |
-| **로드맵 문서** | https://github.com/hyunwoooim-star/smart-store-agent/blob/main/docs/ROADMAP.md |
-
-### 참고 자료
-- [Browser-Use GitHub](https://github.com/browser-use/browser-use)
-- [Browser-Use 공식 문서](https://browser-use.com/)
-- [Claude Code Best Practices](https://www.anthropic.com/engineering/claude-code-best-practices)
-- [Streamlit 공식 문서](https://docs.streamlit.io/)
+| 오케스트레이션 | Claude Code CLI |
+| AI 분석 | Gemini 1.5 Flash |
+| 1688 스크래핑 | Apify API |
+| UI | Streamlit |
+| 데이터베이스 | Supabase (PostgreSQL) |
+| 언어 | Python 3.11+ |
 
 ---
 
-## 📊 최종 로드맵 요약
+## 환경 변수
 
-```
-[완료] Phase 1: 핵심 엔진 개발
-[완료] v3.2: MarginConfig + 마스터 프롬프트
-[현재] Phase 1.5: 통합 테스트 및 실전 검증
-[다음] Phase 2: Streamlit 대시보드 (변수 설정 최우선)
-[예정] Phase 3: Browser-Use 1688 자동화
-[예정] Phase 4: Pre-Flight Check + 비즈니스 확장
+```ini
+# .env
+APIFY_API_TOKEN=apify_api_xxx
+GOOGLE_API_KEY=your_google_api_key
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_KEY=your_key
 ```
 
 ---
 
-## ✅ Gemini 피드백 요약
+## 마진 계산 공식
 
-| 항목 | 내용 | 반영 |
-|------|------|------|
-| 환율/요금 하드코딩 | MarginConfig로 분리 | 완료 |
-| Supabase RLS | 체크리스트에 추가 | 완료 |
-| Streamlit 선택 | "신의 한 수" 평가 | 유지 |
-| 변수 설정 UI | Phase 2 최우선 작업 | 계획 |
-| Gemini Vision | OCR 대신 Vision 활용 | Phase 3 계획 |
-| Browser-Use | 1688 자동화 | Phase 3 계획 |
-| Pre-Flight Check | 금지어 검사 기능 | Phase 4 계획 |
-| 마스터 프롬프트 | 베테랑 MD 페르소나 | 완료 |
+```
+총비용 = 상품원가 + 관세 + 부가세 + 배대지 + 국내택배 + 네이버수수료 + 반품충당금 + 광고비
+손익분기 = 고정비용 / (1 - 변동비율)
+변동비율 = 5.5%(네이버) + 5%(반품) + 10%(광고) = 20.5%
+```
+
+### 기본 상수
+- 환율: 195원/CNY
+- 네이버 수수료: 5.5%
+- 반품/CS 충당금: 5%
+- 광고비: 10%
+- 부피무게 계수: 6000
 
 ---
 
-*최종 수정: 2026-01-20*
-*버전: v3.2*
-*상태: Phase 1 완료, Phase 1.5 진행 중*
-*UI 결정: Streamlit 웹 대시보드*
-*자동화: Browser-Use (Phase 3)*
-*Gemini 피드백: 전체 반영 완료*
+## 주의사항
+
+- 마진율 15% 미만 = 수익성 부족
+- 부피무게 > 실무게 → 부피무게로 청구
+- MOQ 50개 이상 → 구매대행 테스트 우선
