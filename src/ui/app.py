@@ -1,9 +1,14 @@
 """
-app.py - Streamlit 대시보드 (v3.6.1)
+app.py - Streamlit 대시보드 (v3.6.2)
 
 DDD 원칙: UI는 껍데기일 뿐, 로직은 domain에서 가져옴
 - 로직 변경 시 이 파일은 수정 불필요
 - Next.js로 전환해도 domain 코드 재사용 가능
+
+v3.6.2 업데이트 (Phase 9):
+- 자동 모니터링 스케줄러 UI 추가
+- 스케줄러 상태 표시 및 제어 (시작/중지/일시정지)
+- 최근 실행 결과 및 통계 대시보드
 
 v3.6.1 업데이트 (Phase 8):
 - 가격 추적 탭 추가 (경쟁사 모니터링)
@@ -34,6 +39,10 @@ from src.monitors.price_tracker import (
     PriceTracker, CompetitorProduct, PriceAlert, PricingStrategy,
     AlertLevel, MarketPlatform, ExposureTier, PricingStrategyType
 )
+from src.monitors.scheduler import (
+    PriceMonitorScheduler, SchedulerStatus, MonitoringResult,
+    MockPriceFetcher, create_scheduler
+)
 
 # ============================================================
 # 페이지 설정
@@ -45,7 +54,7 @@ st.set_page_config(
 )
 
 st.title("🛡️ Smart Store Agent")
-st.markdown("**v3.6.1** | AI 기반 스마트스토어 자동화 시스템")
+st.markdown("**v3.6.2** | AI 기반 스마트스토어 자동화 시스템")
 
 # ============================================================
 # 탭 구성 (5개 탭)
@@ -913,11 +922,20 @@ with tab5:
 
     tracker = st.session_state.price_tracker
 
+    # 스케줄러 초기화
+    if "scheduler" not in st.session_state:
+        st.session_state.scheduler = create_scheduler(tracker, use_mock=True)
+
+    scheduler = st.session_state.scheduler
+    # 트래커가 변경된 경우 동기화
+    scheduler.tracker = tracker
+
     # 서브탭
-    price_tab1, price_tab2, price_tab3 = st.tabs([
+    price_tab1, price_tab2, price_tab3, price_tab4 = st.tabs([
         "➕ 상품 등록",
         "📊 경쟁 분석",
-        "🔔 가격 알림"
+        "🔔 가격 알림",
+        "⚙️ 자동 모니터링"
     ])
 
     # ----------------------------------------------------------
@@ -1232,6 +1250,167 @@ with tab5:
             - **Tier 3 (이탈권)**: +10% 초과 (사실상 노출 X)
             """)
 
+    # ----------------------------------------------------------
+    # 서브탭 4: 자동 모니터링 (Phase 9)
+    # ----------------------------------------------------------
+    with price_tab4:
+        st.subheader("⚙️ 자동 모니터링 스케줄러")
+        st.markdown("경쟁사 가격을 자동으로 모니터링하고 변동 시 알림을 받습니다.")
+
+        # 스케줄러 상태 표시
+        status = scheduler.get_status()
+        current_status = status["status"]
+
+        # 상태 카드
+        status_colors = {
+            "running": ("#d4edda", "#155724", "🟢 실행 중"),
+            "paused": ("#fff3cd", "#856404", "🟡 일시정지"),
+            "stopped": ("#f8d7da", "#721c24", "🔴 중지됨"),
+        }
+        bg, fg, status_text = status_colors.get(current_status, status_colors["stopped"])
+
+        st.markdown(f"""
+        <div style="background-color: {bg}; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+            <h3 style="color: {fg}; margin: 0;">{status_text}</h3>
+            <p style="color: {fg}; margin: 5px 0 0 0;">등록된 상품: {status['products_count']}개 | 활성 상품: {status['active_products']}개</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 컨트롤 버튼
+        st.markdown("### 📡 스케줄러 제어")
+        ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns(4)
+
+        with ctrl_col1:
+            interval_hours = st.selectbox(
+                "체크 간격",
+                options=[0.5, 1, 6, 12, 24],
+                index=2,  # 6시간
+                format_func=lambda x: f"{x}시간" if x >= 1 else f"{int(x*60)}분",
+                key="scheduler_interval"
+            )
+
+        with ctrl_col2:
+            if current_status == "stopped":
+                if st.button("▶️ 시작", type="primary", key="start_scheduler"):
+                    if status['products_count'] == 0:
+                        st.error("먼저 경쟁사 상품을 등록하세요.")
+                    else:
+                        scheduler.start(interval_hours=interval_hours, run_immediately=True)
+                        st.success("스케줄러 시작됨!")
+                        st.rerun()
+            elif current_status == "running":
+                if st.button("⏸️ 일시정지", key="pause_scheduler"):
+                    scheduler.pause()
+                    st.rerun()
+            else:  # paused
+                if st.button("▶️ 재개", type="primary", key="resume_scheduler"):
+                    scheduler.resume()
+                    st.rerun()
+
+        with ctrl_col3:
+            if current_status != "stopped":
+                if st.button("⏹️ 중지", key="stop_scheduler"):
+                    scheduler.stop()
+                    st.rerun()
+            else:
+                st.button("⏹️ 중지", key="stop_disabled", disabled=True)
+
+        with ctrl_col4:
+            if st.button("🔄 즉시 실행", key="run_now"):
+                if status['products_count'] == 0:
+                    st.error("먼저 경쟁사 상품을 등록하세요.")
+                else:
+                    with st.spinner("가격 체크 중..."):
+                        result = scheduler.run_now()
+                    st.success(f"✅ 완료! {result.products_checked}개 체크, {result.alerts_generated}개 알림 생성")
+                    st.rerun()
+
+        # 스케줄 정보
+        if status["job"]:
+            job = status["job"]
+            st.markdown("---")
+            st.markdown("### 📅 스케줄 정보")
+
+            job_col1, job_col2, job_col3 = st.columns(3)
+
+            with job_col1:
+                interval_display = job["interval_seconds"] // 3600
+                st.metric("체크 간격", f"{interval_display}시간")
+            with job_col2:
+                st.metric("총 실행 횟수", f"{job['run_count']}회")
+            with job_col3:
+                st.metric("오류 횟수", f"{job['error_count']}건")
+
+            if job["last_run"]:
+                st.caption(f"마지막 실행: {job['last_run'][:19]}")
+            if job["next_run"]:
+                st.caption(f"다음 실행 예정: {job['next_run'][:19]}")
+
+        # 최근 실행 결과
+        st.markdown("---")
+        st.markdown("### 📊 최근 실행 결과")
+
+        recent_results = scheduler.get_recent_results(limit=10)
+
+        if recent_results:
+            # 요약 통계
+            summary = scheduler.get_summary()
+
+            sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
+            with sum_col1:
+                st.metric("총 실행", f"{summary['total_runs']}회")
+            with sum_col2:
+                st.metric("총 알림", f"{summary['total_alerts']}건")
+            with sum_col3:
+                st.metric("평균 소요시간", f"{summary['avg_duration_ms']:.0f}ms")
+            with sum_col4:
+                st.metric("오류율", f"{summary['error_rate']:.1f}%")
+
+            # 결과 테이블
+            st.markdown("#### 실행 기록")
+            import pandas as pd
+
+            results_data = []
+            for r in reversed(recent_results):
+                results_data.append({
+                    "시간": r.timestamp[:19],
+                    "체크 상품": r.products_checked,
+                    "알림 생성": r.alerts_generated,
+                    "오류": len(r.errors),
+                    "소요시간": f"{r.duration_ms:.0f}ms"
+                })
+
+            if results_data:
+                df = pd.DataFrame(results_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("아직 실행 기록이 없습니다. '즉시 실행' 또는 스케줄러를 시작하세요.")
+
+        # 알림 콜백 설정 안내
+        with st.expander("🔔 알림 설정 (개발 예정)"):
+            st.markdown("""
+            ### 향후 지원 예정 기능
+
+            **📱 알림 채널**
+            - Slack 웹훅
+            - Telegram 봇
+            - 이메일 알림
+            - 카카오톡 알림 (Phase 4)
+
+            **⚙️ 현재 방식**
+            - 대시보드 '가격 알림' 탭에서 확인
+            - 브라우저 새로고침으로 최신 알림 확인
+
+            **💡 개발자 API**
+            ```python
+            # 커스텀 콜백 등록
+            def my_callback(alert):
+                send_slack(alert.message)
+
+            scheduler.add_alert_callback(my_callback)
+            ```
+            """)
+
 # ============================================================
 # 푸터
 # ============================================================
@@ -1239,7 +1418,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-        Smart Store Agent v3.6.1 | Phase 8 (가격 추적 대시보드)<br>
+        Smart Store Agent v3.6.2 | Phase 9 (자동 모니터링 스케줄러)<br>
         "망하는 상품을 미리 걸러내는" 보수적 분석기<br>
         Powered by Claude Code + Gemini AI + Apify
     </div>

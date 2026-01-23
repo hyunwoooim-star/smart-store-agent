@@ -15,6 +15,14 @@ from .price_tracker import (
     PricingStrategyType,
     create_tracker,
 )
+from .scheduler import (
+    PriceMonitorScheduler,
+    SchedulerStatus,
+    ScheduleJob,
+    MonitoringResult,
+    MockPriceFetcher,
+    create_scheduler,
+)
 
 __all__ = [
     "MetricsCollector",
@@ -36,4 +44,11 @@ __all__ = [
     "ExposureTier",
     "PricingStrategyType",
     "create_tracker",
+    # Scheduler (Phase 9)
+    "PriceMonitorScheduler",
+    "SchedulerStatus",
+    "ScheduleJob",
+    "MonitoringResult",
+    "MockPriceFetcher",
+    "create_scheduler",
 ]
