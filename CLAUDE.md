@@ -8,7 +8,7 @@ AI 에이전트 기반 네이버 스마트스토어 자동화 시스템 (v3.6.1)
 ## 핵심 목표
 "틈새 시장 발굴 → 소싱 검증 → 콘텐츠 생성" 과정 자동화
 
-## 현재 상태 (v3.6.1 - Gemini CTO 피드백 반영)
+## 현재 상태 (v3.6.2 - Phase 8 완료)
 - **Phase 1**: 핵심 엔진 개발 ✅ 완료
 - **Phase 2**: Streamlit 대시보드 ✅ 완료
 - **Phase 3.5**: 1688 스크래핑 (Apify API) ✅ 완료
@@ -18,9 +18,12 @@ AI 에이전트 기반 네이버 스마트스토어 자동화 시스템 (v3.6.1)
 - **Phase 6-1**: 엑셀 생성기 ✅ 완료
 - **Phase 6-2**: 테스트 코드 보강 ✅ 완료
 - **Phase 7**: 1688 실시간 연동 ✅ 완료 (Apify + 테스트)
-- **Phase 6-3**: 경쟁사 가격 추적 ✅ 완료 (336 tests total)
-  - v3.6.1: Gemini CTO 피드백 반영 (하이브리드 임계값, Tier 분류, 라운딩)
-- **Phase 8**: Streamlit UI 개선 ← 다음 (Gemini CTO 권장)
+- **Phase 6-3**: 경쟁사 가격 추적 ✅ 완료 (336 tests)
+- **Phase 8**: Streamlit UI 개선 ✅ 완료
+  - 가격 추적 대시보드 탭 추가 (5번째 탭)
+  - Tier 기반 경쟁력 분석 시각화
+  - 가격 전략 제안 UI (Price Leadership vs Premium)
+- **Phase 9**: 자동 모니터링 (스케줄러) ← 다음 예정
 
 ## 기술 스택
 - 오케스트레이션: Claude Code CLI

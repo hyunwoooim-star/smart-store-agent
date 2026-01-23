@@ -1,11 +1,16 @@
 """
-app.py - Streamlit 대시보드 (v3.5.1)
+app.py - Streamlit 대시보드 (v3.6.1)
 
 DDD 원칙: UI는 껍데기일 뿐, 로직은 domain에서 가져옴
 - 로직 변경 시 이 파일은 수정 불필요
 - Next.js로 전환해도 domain 코드 재사용 가능
 
-v3.5.1 업데이트:
+v3.6.1 업데이트 (Phase 8):
+- 가격 추적 탭 추가 (경쟁사 모니터링)
+- Tier 기반 경쟁력 분석 (Gemini CTO 피드백)
+- 가격 변동 알림 대시보드
+
+v3.5.1:
 - 탭 기반 UI로 변경
 - 1688 스크래핑 탭 추가 (Apify API)
 - Pre-Flight Check 탭 추가 (금지어 검사 + 의료기기 패턴)
@@ -25,6 +30,10 @@ from src.domain.models import Product, MarketType, RiskLevel
 from src.domain.logic import LandedCostCalculator
 from src.core.config import AppConfig, MARKET_FEES
 from src.analyzers.preflight_check import PreFlightChecker, ViolationType
+from src.monitors.price_tracker import (
+    PriceTracker, CompetitorProduct, PriceAlert, PricingStrategy,
+    AlertLevel, MarketPlatform, ExposureTier, PricingStrategyType
+)
 
 # ============================================================
 # 페이지 설정
@@ -36,16 +45,17 @@ st.set_page_config(
 )
 
 st.title("🛡️ Smart Store Agent")
-st.markdown("**v3.5.1** | AI 기반 스마트스토어 자동화 시스템")
+st.markdown("**v3.6.1** | AI 기반 스마트스토어 자동화 시스템")
 
 # ============================================================
-# 탭 구성 (4개 탭)
+# 탭 구성 (5개 탭)
 # ============================================================
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 마진 분석",
     "🇨🇳 1688 스크래핑",
     "✅ Pre-Flight Check",
-    "📝 리뷰 분석"
+    "📝 리뷰 분석",
+    "📈 가격 추적"
 ])
 
 # ============================================================
@@ -891,13 +901,345 @@ with tab4:
         """)
 
 # ============================================================
+# TAB 5: 가격 추적 (Phase 8 - Gemini CTO 권장)
+# ============================================================
+with tab5:
+    st.header("📈 경쟁사 가격 추적")
+    st.markdown("경쟁사 상품 가격을 모니터링하고 최적의 가격 전략을 제안합니다.")
+
+    # 세션 상태 초기화
+    if "price_tracker" not in st.session_state:
+        st.session_state.price_tracker = PriceTracker()
+
+    tracker = st.session_state.price_tracker
+
+    # 서브탭
+    price_tab1, price_tab2, price_tab3 = st.tabs([
+        "➕ 상품 등록",
+        "📊 경쟁 분석",
+        "🔔 가격 알림"
+    ])
+
+    # ----------------------------------------------------------
+    # 서브탭 1: 상품 등록
+    # ----------------------------------------------------------
+    with price_tab1:
+        st.subheader("경쟁사 상품 등록")
+
+        reg_col1, reg_col2 = st.columns(2)
+
+        with reg_col1:
+            comp_name = st.text_input(
+                "상품명",
+                placeholder="예: 초경량 캠핑의자 A사",
+                key="comp_name"
+            )
+            comp_url = st.text_input(
+                "상품 URL",
+                placeholder="https://smartstore.naver.com/...",
+                key="comp_url",
+                help="네이버, 쿠팡, G마켓 등 URL 입력"
+            )
+            comp_price = st.number_input(
+                "현재 가격 (원)",
+                min_value=0,
+                max_value=10000000,
+                value=30000,
+                step=1000,
+                key="comp_price"
+            )
+
+        with reg_col2:
+            my_price = st.number_input(
+                "내 상품 가격 (원) - 비교용",
+                min_value=0,
+                max_value=10000000,
+                value=32000,
+                step=1000,
+                key="my_price_input"
+            )
+            my_cost = st.number_input(
+                "내 상품 원가 (원) - 전략 계산용",
+                min_value=0,
+                max_value=10000000,
+                value=20000,
+                step=1000,
+                key="my_cost_input"
+            )
+            comp_tags = st.text_input(
+                "태그 (쉼표 구분)",
+                placeholder="캠핑의자, 경쟁사A",
+                key="comp_tags"
+            )
+
+        # 등록 버튼
+        if st.button("➕ 경쟁사 상품 등록", type="primary", key="add_comp_btn"):
+            if not comp_name:
+                st.error("상품명을 입력하세요.")
+            elif comp_price <= 0:
+                st.error("가격을 입력하세요.")
+            else:
+                tags = [t.strip() for t in comp_tags.split(",") if t.strip()] if comp_tags else []
+                product = tracker.add_product(
+                    name=comp_name,
+                    url=comp_url or "manual_input",
+                    current_price=comp_price,
+                    my_price=my_price if my_price > 0 else None,
+                    tags=tags
+                )
+
+                # 플랫폼 자동 감지 표시
+                platform_emoji = {
+                    MarketPlatform.NAVER: "🟢 네이버",
+                    MarketPlatform.COUPANG: "🟠 쿠팡",
+                    MarketPlatform.GMARKET: "🔵 G마켓",
+                    MarketPlatform.ELEVEN: "🟣 11번가",
+                    MarketPlatform.AUCTION: "🔴 옥션",
+                    MarketPlatform.OTHER: "⚪ 기타",
+                }
+                st.success(f"✅ 등록 완료! [{platform_emoji.get(product.platform, '기타')}] {product.name}")
+
+        # 등록된 상품 목록
+        st.markdown("---")
+        st.subheader(f"📋 등록된 경쟁사 ({len(tracker.products)}개)")
+
+        if tracker.products:
+            for pid, p in tracker.products.items():
+                with st.expander(f"{p.name} | {p.current_price:,}원", expanded=False):
+                    info_col1, info_col2, action_col = st.columns([2, 2, 1])
+
+                    with info_col1:
+                        st.write(f"**플랫폼:** {p.platform.value.upper()}")
+                        st.write(f"**현재 가격:** {p.current_price:,}원")
+                        if p.my_price:
+                            diff = p.current_price - p.my_price
+                            diff_text = f"+{diff:,}원" if diff > 0 else f"{diff:,}원"
+                            st.write(f"**내 가격 대비:** {diff_text}")
+
+                    with info_col2:
+                        st.write(f"**URL:** {p.url[:50]}...")
+                        st.write(f"**태그:** {', '.join(p.tags) if p.tags else '-'}")
+                        st.write(f"**마지막 확인:** {p.last_checked[:10]}")
+
+                    with action_col:
+                        # 가격 업데이트
+                        new_price = st.number_input(
+                            "새 가격",
+                            min_value=0,
+                            value=p.current_price,
+                            key=f"update_{pid}"
+                        )
+                        if st.button("🔄 업데이트", key=f"update_btn_{pid}"):
+                            alert = tracker.update_price(pid, new_price)
+                            if alert:
+                                st.info(f"가격 변동: {alert.change_percent:+.1f}%")
+                            else:
+                                st.success("가격 업데이트됨")
+        else:
+            st.info("아직 등록된 경쟁사 상품이 없습니다.")
+
+    # ----------------------------------------------------------
+    # 서브탭 2: 경쟁 분석
+    # ----------------------------------------------------------
+    with price_tab2:
+        st.subheader("📊 경쟁력 분석 대시보드")
+
+        if not tracker.products:
+            st.warning("먼저 경쟁사 상품을 등록하세요.")
+        else:
+            # 내 가격 입력
+            analysis_my_price = st.number_input(
+                "내 상품 가격 (원)",
+                min_value=1000,
+                value=35000,
+                step=1000,
+                key="analysis_price"
+            )
+
+            analysis_my_cost = st.number_input(
+                "내 상품 원가 (원)",
+                min_value=1000,
+                value=20000,
+                step=1000,
+                key="analysis_cost"
+            )
+
+            if st.button("🔍 경쟁력 분석", type="primary", key="analyze_btn"):
+                # 경쟁력 분석
+                analysis = tracker.get_competitive_analysis(analysis_my_price)
+
+                st.markdown("---")
+
+                # Tier 표시 (핵심!)
+                tier = analysis.get("exposure_tier", "tier3")
+                tier_msg = analysis.get("tier_message", "")
+
+                tier_colors = {
+                    "tier1": ("#d4edda", "#155724", "🟢"),  # 녹색
+                    "tier2": ("#fff3cd", "#856404", "🟡"),  # 노란색
+                    "tier3": ("#f8d7da", "#721c24", "🔴"),  # 빨간색
+                }
+                bg, fg, emoji = tier_colors.get(tier, tier_colors["tier3"])
+
+                st.markdown(f"""
+                <div style="background-color: {bg}; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <h3 style="color: {fg}; margin: 0;">{emoji} {tier_msg}</h3>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 메트릭 카드
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+
+                with m_col1:
+                    st.metric("경쟁사 수", f"{analysis['total_competitors']}개")
+                with m_col2:
+                    st.metric("시장 최저가", f"{analysis.get('min_price', 0):,}원")
+                with m_col3:
+                    st.metric("시장 평균가", f"{analysis['avg_competitor_price']:,}원")
+                with m_col4:
+                    st.metric("내 포지션", analysis['position'])
+
+                # 가격 분포 차트
+                st.markdown("---")
+                st.subheader("📊 가격 분포")
+
+                prices = [p.current_price for p in tracker.products.values()]
+                price_data = {
+                    "상품": [p.name for p in tracker.products.values()],
+                    "가격": prices
+                }
+
+                import pandas as pd
+                df = pd.DataFrame(price_data)
+                df = df.sort_values("가격")
+
+                # 내 가격 추가
+                my_df = pd.DataFrame({"상품": ["⭐ 내 상품"], "가격": [analysis_my_price]})
+                df = pd.concat([df, my_df], ignore_index=True)
+
+                st.bar_chart(df.set_index("상품"))
+
+                # 가격 전략 제안
+                st.markdown("---")
+                st.subheader("💡 가격 전략 제안")
+
+                # 첫 번째 상품에 대해 전략 계산 (my_price가 설정된 경우)
+                strategy_product = None
+                for pid, p in tracker.products.items():
+                    if p.my_price:
+                        strategy_product = pid
+                        break
+
+                if strategy_product:
+                    strategy = tracker.get_pricing_strategy(
+                        strategy_product,
+                        my_cost=analysis_my_cost,
+                        target_margin=30.0
+                    )
+
+                    if strategy:
+                        # 전략 유형 표시
+                        if strategy.strategy_type == PricingStrategyType.PRICE_LEADERSHIP:
+                            st.success(f"""
+                            **🟢 전략: 가격 리더십 (Price Leadership)**
+
+                            - 추천 가격: **{strategy.recommended_price:,}원**
+                            - 예상 마진율: {strategy.margin_at_recommended:.1f}%
+                            - 시장 최저가: {strategy.min_competitor_price:,}원
+
+                            {strategy.recommendation}
+                            """)
+                        else:
+                            st.warning(f"""
+                            **🔴 전략: 프리미엄 포지셔닝 (Premium Positioning)**
+
+                            - 추천 가격: **{strategy.recommended_price:,}원**
+                            - 예상 마진율: {strategy.margin_at_recommended:.1f}%
+                            - 시장 최저가: {strategy.min_competitor_price:,}원
+
+                            {strategy.recommendation}
+                            """)
+
+                        # Tier 표시
+                        tier_labels = {
+                            ExposureTier.TIER1_EXPOSURE: "🟢 Tier 1: 노출권",
+                            ExposureTier.TIER2_DEFENSE: "🟡 Tier 2: 방어권",
+                            ExposureTier.TIER3_OUT: "🔴 Tier 3: 이탈권",
+                        }
+                        st.info(f"추천가 노출 등급: {tier_labels.get(strategy.exposure_tier, 'Unknown')}")
+                else:
+                    st.info("💡 가격 전략을 보려면 상품 등록 시 '내 상품 가격'을 입력하세요.")
+
+    # ----------------------------------------------------------
+    # 서브탭 3: 가격 알림
+    # ----------------------------------------------------------
+    with price_tab3:
+        st.subheader("🔔 가격 변동 알림")
+
+        alerts = tracker.alerts
+        unread = tracker.get_unread_alerts()
+
+        if unread:
+            st.error(f"📢 읽지 않은 알림 {len(unread)}건")
+
+        if alerts:
+            for alert in reversed(alerts[-20:]):  # 최근 20개만
+                # 알림 레벨별 스타일
+                if alert.alert_level == AlertLevel.CRITICAL:
+                    container = st.error
+                    icon = "🚨"
+                elif alert.alert_level == AlertLevel.WARNING:
+                    container = st.warning
+                    icon = "⚠️"
+                else:
+                    container = st.info
+                    icon = "ℹ️"
+
+                # 읽음 여부
+                read_mark = "" if alert.is_read else " 🆕"
+
+                container(f"""
+                {icon} **{alert.product_name}**{read_mark}
+
+                {alert.message}
+
+                📅 {alert.timestamp[:16]}
+                """)
+
+                # 읽음 처리 버튼
+                if not alert.is_read:
+                    if st.button("✓ 읽음", key=f"read_{alert.alert_id}"):
+                        tracker.mark_alert_read(alert.alert_id)
+                        st.rerun()
+        else:
+            st.info("아직 가격 변동 알림이 없습니다.")
+
+        # 알림 기준 안내
+        with st.expander("📋 알림 기준 (v3.6.1)"):
+            st.markdown(f"""
+            ### 하이브리드 임계값 (Gemini CTO 권장)
+            - **% 조건 AND 금액 조건** 모두 충족해야 WARNING 이상
+
+            | 레벨 | 변동률 | 변동 금액 |
+            |------|--------|-----------|
+            | 🚨 CRITICAL | ≥15% | ≥1,000원 |
+            | ⚠️ WARNING | ≥5% | ≥1,000원 |
+            | ℹ️ INFO | 그 외 | - |
+
+            ### 노출 등급 (Tier)
+            - **Tier 1 (노출권)**: 최저가 대비 +2% 이내
+            - **Tier 2 (방어권)**: 최저가 대비 +10% 이내
+            - **Tier 3 (이탈권)**: +10% 초과 (사실상 노출 X)
+            """)
+
+# ============================================================
 # 푸터
 # ============================================================
 st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-        Smart Store Agent v3.5.1 | Phase 5.1 MVP (리뷰 분석)<br>
+        Smart Store Agent v3.6.1 | Phase 8 (가격 추적 대시보드)<br>
         "망하는 상품을 미리 걸러내는" 보수적 분석기<br>
         Powered by Claude Code + Gemini AI + Apify
     </div>
