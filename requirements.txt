@@ -30,12 +30,10 @@ aiohttp>=3.9.0
 streamlit>=1.30.0     # 웹 대시보드
 
 # ===========================================
-# Browser Automation - Playwright + Gemini (Phase 3.5)
+# 1688 Scraping - Apify API (Phase 3.5 Pivot)
 # ===========================================
-playwright>=1.40.0    # 브라우저 엔진 (페이지 로딩)
-beautifulsoup4>=4.12.0  # HTML 파싱
-langchain-google-genai>=2.0.0  # Gemini + LangChain 연동
-# browser-use 제거 (WSL 타임아웃 이슈)
+apify-client>=1.6.0   # Apify SaaS API 클라이언트
+# Playwright/browser-use 제거 → Apify로 전환 (WSL 이슈 해결)
 
 # ===========================================
 # 유틸리티

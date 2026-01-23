@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-test_browser.py - 1688 스크래퍼 테스트 스크립트 (Phase 3.5 - Playwright + Gemini)
+test_browser.py - 1688 스크래퍼 테스트 스크립트 (Apify API 버전)
+
+Phase 3.5 Pivot: 브라우저 없음, Apify API만 사용
 
 사용법:
     # Mock 테스트 (API 키 없이)
     python test_browser.py --mock
 
-    # 실제 테스트 (Gemini API 키 필요)
+    # 실제 테스트 (Apify API 키 필요)
     python test_browser.py --url "https://detail.1688.com/offer/xxx.html"
-
-    # 헤드리스 모드 끄기 (브라우저 창 보기)
-    python test_browser.py --url "..." --show-browser
 """
 
 import asyncio
 import argparse
 import sys
+import time
 from pathlib import Path
 
 # 프로젝트 루트를 Python 경로에 추가
@@ -42,7 +42,9 @@ async def test_mock_scraper():
     test_url = "https://detail.1688.com/offer/mock-test.html"
     console.print(f"📦 URL: {test_url}")
 
+    start_time = time.time()
     scraped = await scrape_1688(test_url, use_mock=True)
+    duration = time.time() - start_time
 
     # 2. 추출 결과 표시
     table = Table(title="🇨🇳 1688 추출 결과")
@@ -55,6 +57,7 @@ async def test_mock_scraper():
     table.add_row("사이즈", f"{scraped.length_cm} x {scraped.width_cm} x {scraped.height_cm} cm")
     table.add_row("MOQ", f"{scraped.moq}개")
     table.add_row("이미지", scraped.image_url or "없음")
+    table.add_row("소요시간", f"{duration:.2f}초")
 
     console.print(table)
 
@@ -103,38 +106,42 @@ async def test_mock_scraper():
     return True
 
 
-async def test_real_scraper(url: str, headless: bool = True):
-    """실제 1688 스크래퍼 테스트 (API 키 필요)"""
+async def test_apify_scraper(url: str):
+    """실제 Apify API 스크래퍼 테스트"""
     from src.adapters.alibaba_scraper import AlibabaScraper
     from src.domain.logic import LandedCostCalculator
     from src.domain.models import MarketType
 
-    console.print("\n[bold cyan]🌐 실제 스크래퍼 테스트 시작[/bold cyan]\n")
+    console.print("\n[bold cyan]🌐 Apify API 스크래퍼 테스트 시작[/bold cyan]\n")
     console.print(f"📦 URL: {url}")
-    console.print(f"🖥️  Headless: {'Yes' if headless else 'No (브라우저 창 표시)'}")
+    console.print("[dim]☁️  브라우저 없음 - Apify 클라우드에서 처리[/dim]")
 
     try:
-        scraper = AlibabaScraper(headless=headless)
+        scraper = AlibabaScraper()
     except ValueError as e:
         console.print(f"[red]❌ 오류: {e}[/red]")
         console.print("\n[yellow]💡 해결 방법:[/yellow]")
-        console.print("1. .env 파일에 GEMINI_API_KEY 추가")
-        console.print("2. 또는 --mock 옵션으로 테스트")
+        console.print("1. https://console.apify.com/sign-up 가입")
+        console.print("2. Settings > Integrations에서 API Token 복사")
+        console.print("3. .env 파일에 APIFY_API_TOKEN=apify_api_xxx 추가")
+        console.print("\n[cyan]또는 --mock 옵션으로 테스트[/cyan]")
         return False
 
-    console.print("\n[yellow]⏳ Playwright로 페이지 로딩 + Gemini 파싱 중... (5~10초 소요)[/yellow]")
+    console.print(f"\n[yellow]⏳ Apify Actor 실행 중... (5~30초 소요)[/yellow]")
 
     try:
+        start_time = time.time()
         scraped = await scraper.scrape(url)
+        duration = time.time() - start_time
+
     except ImportError as e:
         console.print(f"[red]❌ 패키지 오류: {e}[/red]")
         console.print("\n[yellow]💡 해결 방법:[/yellow]")
-        console.print("1. 패키지 설치: pip install playwright beautifulsoup4 langchain-google-genai")
-        console.print("2. Playwright 브라우저 설치: playwright install chromium")
+        console.print("pip install apify-client")
         return False
 
     # 결과 표시
-    table = Table(title="🇨🇳 1688 추출 결과")
+    table = Table(title="🇨🇳 1688 추출 결과 (Apify)")
     table.add_column("항목", style="cyan")
     table.add_column("값", style="green")
 
@@ -143,11 +150,21 @@ async def test_real_scraper(url: str, headless: bool = True):
     table.add_row("무게", f"{scraped.weight_kg or '추출 실패'} kg")
     table.add_row("사이즈", f"{scraped.length_cm or '?'} x {scraped.width_cm or '?'} x {scraped.height_cm or '?'} cm")
     table.add_row("MOQ", f"{scraped.moq}개")
+    table.add_row("이미지", (scraped.image_url or "없음")[:50] + "..." if scraped.image_url and len(scraped.image_url) > 50 else scraped.image_url or "없음")
+    table.add_row("소요시간", f"{duration:.2f}초")
 
     console.print(table)
 
-    # 마진 계산
+    # 원본 스펙
+    if scraped.raw_specs:
+        console.print("\n[bold]📋 원본 스펙:[/bold]")
+        for key, value in list(scraped.raw_specs.items())[:10]:  # 최대 10개
+            console.print(f"  - {key}: {value}")
+
+    # 마진 계산 (가격이 있을 때만)
     if scraped.price_cny > 0:
+        console.print("\n[bold yellow]💰 마진 계산[/bold yellow]\n")
+
         product = scraper.to_domain_product(scraped, category="캠핑/레저")
 
         calculator = LandedCostCalculator()
@@ -160,39 +177,45 @@ async def test_real_scraper(url: str, headless: bool = True):
         )
 
         console.print(Panel(result.recommendation, title="🤖 AI 판정", border_style="blue"))
+    else:
+        console.print("\n[yellow]⚠️ 가격을 가져오지 못해 마진 계산 생략[/yellow]")
 
-    console.print("\n[bold green]✅ 실제 테스트 완료![/bold green]")
+    console.print("\n[bold green]✅ Apify 테스트 완료![/bold green]")
     return True
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="1688 스크래퍼 테스트",
+        description="1688 스크래퍼 테스트 (Apify API 버전)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예제:
-    python test_browser.py --mock                      # Mock 테스트
-    python test_browser.py --url "https://..."         # 실제 URL 테스트
-    python test_browser.py --url "https://..." --show  # 브라우저 창 보기
+    python test_browser.py --mock                      # Mock 테스트 (API 키 불필요)
+    python test_browser.py --url "https://..."         # 실제 Apify API 테스트
+
+환경 설정:
+    1. Apify 가입: https://console.apify.com/sign-up
+    2. API Token 발급: Settings > Integrations
+    3. .env 파일에 추가: APIFY_API_TOKEN=apify_api_xxx
         """
     )
     parser.add_argument("--mock", action="store_true", help="Mock 데이터로 테스트 (API 키 불필요)")
     parser.add_argument("--url", type=str, help="1688 상품 URL")
-    parser.add_argument("--show", "--show-browser", action="store_true", help="브라우저 창 표시 (headless 끄기)")
 
     args = parser.parse_args()
 
     # 배너
     console.print(Panel.fit(
         "[bold blue]Smart Store Agent v3.5[/bold blue]\n"
-        "[cyan]1688 스크래퍼 테스트 (Playwright + Gemini)[/cyan]",
+        "[cyan]1688 스크래퍼 테스트 (Apify API)[/cyan]\n"
+        "[dim]☁️  브라우저 없음 - 클라우드 스크래핑[/dim]",
         border_style="blue"
     ))
 
     if args.mock:
         asyncio.run(test_mock_scraper())
     elif args.url:
-        asyncio.run(test_real_scraper(args.url, headless=not args.show))
+        asyncio.run(test_apify_scraper(args.url))
     else:
         console.print("[yellow]사용법: python test_browser.py --mock 또는 --url <URL>[/yellow]")
         console.print("\n[cyan]--mock 옵션으로 먼저 테스트해보세요![/cyan]")

@@ -48,12 +48,17 @@ class AnalysisRecord:
 
 
 class SupabaseClient:
-    """Supabase 클라이언트"""
+    """Supabase 클라이언트 (v3.5.2 - 캐싱 레이어 추가)"""
 
     # 테이블명
     TABLE_KEYWORDS = "keywords"
     TABLE_ANALYSES = "analyses"
     TABLE_REPORTS = "reports"
+    TABLE_SCRAPE_CACHE = "scrape_cache"  # Phase 5.2 캐싱 테이블
+
+    # 캐시 유효 기간 (일)
+    CACHE_TTL_DAYS_1688 = 3     # 1688 상품 정보: 3일
+    CACHE_TTL_DAYS_REVIEW = 7   # 리뷰 분석: 7일
 
     def __init__(self, url: str = None, key: str = None):
         """
@@ -238,6 +243,180 @@ class SupabaseClient:
         except Exception as e:
             print(f"리포트 조회 실패: {e}")
             return None
+
+    # --- 캐싱 레이어 (Phase 5.2 - Gemini CTO 조언) ---
+
+    def get_cached_scrape(self, url: str) -> Optional[Dict]:
+        """캐시된 스크래핑 결과 조회
+
+        Args:
+            url: 1688 상품 URL
+
+        Returns:
+            캐시된 데이터 (있고 유효하면) / None (없거나 만료)
+        """
+        if not self.is_connected():
+            return None
+
+        try:
+            from datetime import datetime, timedelta
+
+            # URL 정규화 (쿼리 파라미터 제거)
+            normalized_url = self._normalize_url(url)
+
+            result = (
+                self.client.table(self.TABLE_SCRAPE_CACHE)
+                .select("*")
+                .eq("url", normalized_url)
+                .single()
+                .execute()
+            )
+
+            if not result.data:
+                return None
+
+            # TTL 체크
+            created_at = datetime.fromisoformat(result.data["created_at"].replace("Z", "+00:00"))
+            ttl_days = self.CACHE_TTL_DAYS_1688
+            if datetime.now(created_at.tzinfo) - created_at > timedelta(days=ttl_days):
+                # 캐시 만료 - 삭제
+                self.client.table(self.TABLE_SCRAPE_CACHE).delete().eq("url", normalized_url).execute()
+                return None
+
+            print(f"✅ [Cache Hit] {normalized_url[:50]}...")
+            return result.data.get("data")
+
+        except Exception as e:
+            # 캐시 미스는 정상 동작
+            return None
+
+    def save_scrape_cache(self, url: str, data: Dict) -> bool:
+        """스크래핑 결과 캐시 저장
+
+        Args:
+            url: 1688 상품 URL
+            data: 스크래핑 결과 데이터
+
+        Returns:
+            성공 여부
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            normalized_url = self._normalize_url(url)
+
+            record = {
+                "url": normalized_url,
+                "data": data,
+                "created_at": datetime.now().isoformat()
+            }
+
+            # Upsert (있으면 업데이트, 없으면 삽입)
+            self.client.table(self.TABLE_SCRAPE_CACHE).upsert(
+                record, on_conflict="url"
+            ).execute()
+
+            print(f"💾 [Cache Save] {normalized_url[:50]}...")
+            return True
+
+        except Exception as e:
+            print(f"캐시 저장 실패: {e}")
+            return False
+
+    def get_cached_review(self, product_name: str, category: str) -> Optional[Dict]:
+        """캐시된 리뷰 분석 결과 조회"""
+        if not self.is_connected():
+            return None
+
+        try:
+            from datetime import datetime, timedelta
+
+            # 캐시 키 생성
+            cache_key = f"review:{category}:{product_name[:50]}"
+
+            result = (
+                self.client.table(self.TABLE_SCRAPE_CACHE)
+                .select("*")
+                .eq("url", cache_key)
+                .single()
+                .execute()
+            )
+
+            if not result.data:
+                return None
+
+            # TTL 체크 (리뷰는 7일)
+            created_at = datetime.fromisoformat(result.data["created_at"].replace("Z", "+00:00"))
+            if datetime.now(created_at.tzinfo) - created_at > timedelta(days=self.CACHE_TTL_DAYS_REVIEW):
+                self.client.table(self.TABLE_SCRAPE_CACHE).delete().eq("url", cache_key).execute()
+                return None
+
+            print(f"✅ [Review Cache Hit] {cache_key[:30]}...")
+            return result.data.get("data")
+
+        except Exception:
+            return None
+
+    def save_review_cache(self, product_name: str, category: str, data: Dict) -> bool:
+        """리뷰 분석 결과 캐시 저장"""
+        if not self.is_connected():
+            return False
+
+        try:
+            cache_key = f"review:{category}:{product_name[:50]}"
+
+            record = {
+                "url": cache_key,
+                "data": data,
+                "created_at": datetime.now().isoformat()
+            }
+
+            self.client.table(self.TABLE_SCRAPE_CACHE).upsert(
+                record, on_conflict="url"
+            ).execute()
+
+            print(f"💾 [Review Cache Save] {cache_key[:30]}...")
+            return True
+
+        except Exception as e:
+            print(f"리뷰 캐시 저장 실패: {e}")
+            return False
+
+    def _normalize_url(self, url: str) -> str:
+        """URL 정규화 (쿼리 파라미터 제거)"""
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(url)
+        # 쿼리 파라미터 제거
+        normalized = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+        return normalized
+
+    def clear_expired_cache(self) -> int:
+        """만료된 캐시 정리 (배치 작업용)"""
+        if not self.is_connected():
+            return 0
+
+        try:
+            from datetime import datetime, timedelta
+
+            # 가장 오래된 TTL 기준으로 삭제 (7일)
+            cutoff = (datetime.now() - timedelta(days=self.CACHE_TTL_DAYS_REVIEW)).isoformat()
+
+            result = (
+                self.client.table(self.TABLE_SCRAPE_CACHE)
+                .delete()
+                .lt("created_at", cutoff)
+                .execute()
+            )
+
+            count = len(result.data) if result.data else 0
+            print(f"🗑️ [Cache Cleanup] {count}개 삭제")
+            return count
+
+        except Exception as e:
+            print(f"캐시 정리 실패: {e}")
+            return 0
 
     # --- 통계 ---
 
