@@ -24,6 +24,13 @@ try:
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
+    # Dummy classes for type hints
+    openpyxl = None
+    Font = None
+    Alignment = None
+    PatternFill = None
+    Border = None
+    Side = None
 
 
 @dataclass
@@ -97,23 +104,22 @@ class NaverExcelGenerator:
         ("Q", "[분석]MOQ", 8),
     ]
 
-    # 스타일 정의
-    HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
-    ANALYSIS_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-
-    RISK_COLORS = {
-        "safe": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-        "warning": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-        "danger": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-    }
-
     def __init__(self):
         if not OPENPYXL_AVAILABLE:
             raise ImportError(
                 "openpyxl 패키지가 필요합니다.\n"
                 "설치: pip install openpyxl"
             )
+
+        # 스타일 정의 (openpyxl import 후 초기화)
+        self.HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        self.HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+        self.ANALYSIS_FILL = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        self.RISK_COLORS = {
+            "safe": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+            "warning": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+            "danger": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+        }
 
     def generate(
         self,
