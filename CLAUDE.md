@@ -15,7 +15,9 @@ AI 에이전트 기반 네이버 스마트스토어 자동화 시스템 (v3.5)
 - **Phase 4**: Pre-Flight Check ✅ 완료
 - **Phase 5.1**: 리뷰 분석 ✅ 완료
 - **Phase 5.2**: Pydantic + Supabase 캐싱 ✅ 완료
-- **Phase 6**: 비즈니스 확장 (예정)
+- **Phase 6-1**: 엑셀 생성기 ✅ 완료
+- **Phase 6-2**: 테스트 코드 보강 ← 다음
+- **Phase 7**: 1688 실시간 연동 (Gemini CTO 권장 우선순위 격상)
 
 ## 기술 스택
 - 오케스트레이션: Claude Code CLI
@@ -154,7 +156,7 @@ SUPABASE_KEY=your_key
 
 ---
 
-## 기본 상수
+## 기본 상수 (v3.5.2)
 
 ```python
 exchange_rate = 195           # CNY → KRW
@@ -162,10 +164,10 @@ vat_rate = 0.10              # 부가세 10%
 naver_fee_rate = 0.055       # 네이버 수수료 5.5%
 return_allowance_rate = 0.05 # 반품/CS 충당금 5%
 ad_cost_rate = 0.10          # 광고비 10%
-volume_weight_divisor = 6000 # 부피무게 계수
-domestic_shipping = 3000     # 국내 택배비
+volume_weight_divisor = 5000 # 부피무게 계수 (Gemini CTO 권장: 보수적 계산)
+domestic_shipping = 3500     # 국내 택배비
 shipping_rate_air = 8000     # 항공 배대지 kg당
-shipping_rate_sea = 3000     # 해운 배대지 kg당
+cbm_rate = 75000             # 해운 CBM당 (Gemini CTO 권장)
 ```
 
 ## 관세율 테이블
@@ -207,6 +209,10 @@ shipping_rate_sea = 3000     # 해운 배대지 kg당
 | 2026-01-22 | Playwright → **Apify API 전환** | ✅ 완료 |
 | 2026-01-22 | Phase 4 Pre-Flight Check 구현 | ✅ 완료 |
 | 2026-01-22 | Streamlit 탭 UI 업데이트 | ✅ 완료 |
+| 2026-01-23 | 부피무게 계수 6000→5000 (보수적 계산) | ✅ 완료 |
+| 2026-01-23 | KC인증/전기제품 레드플래그 강화 | ✅ 완료 |
+| 2026-01-23 | 손절매 룰 추천 메시지 반영 | ✅ 완료 |
+| 2026-01-23 | 사용법 가이드/전략 문서 작성 | ✅ 완료 |
 
 ---
 
