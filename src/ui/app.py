@@ -19,6 +19,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# .env 파일 로딩 (환경변수)
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
+
 from src.domain.models import MarketType
 from src.domain.logic import LandedCostCalculator
 from src.core.config import AppConfig
