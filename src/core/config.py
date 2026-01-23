@@ -49,8 +49,8 @@ class AppConfig:
     min_shipping_fee: int = 6000            # 최소 해운비
     domestic_shipping: int = 3500           # 국내 택배비
 
-    # 부피무게 계수
-    volume_weight_divisor: int = 6000       # 항공 표준
+    # 부피무게 계수 (Gemini CTO 권장: 5000으로 보수적 계산)
+    volume_weight_divisor: int = 5000       # 보수적 계산 (일부 배대지 5000 사용)
 
     # 숨겨진 비용 (강제 적용)
     return_allowance_rate: float = 0.05     # 반품/CS 충당금 5%

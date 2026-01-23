@@ -227,7 +227,7 @@ class LandedCostCalculator:
         self, margin: float, moq: int, is_danger: bool,
         breakeven: int, market: MarketType
     ) -> str:
-        """전략 추천 메시지 생성"""
+        """전략 추천 메시지 생성 (Gemini CTO 피드백 반영: 손절매 룰 포함)"""
         market_name = MARKET_FEES.get(market.value).name
 
         if is_danger:
@@ -237,12 +237,14 @@ class LandedCostCalculator:
             if moq <= 5:
                 return f"🟡 {market_name} 구매대행으로 테스트 먼저. MOQ 낮아서 리스크 적음"
             else:
-                return f"🟡 마진 {margin:.1f}%로 박함. MOQ {moq}개는 부담. 협상 필요"
+                # 손절매 룰 추가 (Gemini CTO 권장)
+                return f"🟡 마진 {margin:.1f}%로 박함. MOQ {moq}개 부담. 협상 또는 손절 기준 설정 필수 (재고 50% 남으면 원가 처분)"
 
         if moq <= 20:
             return f"🟢 {market_name} 진입 추천! 마진 {margin:.1f}% 우수. 소량 사입 시작"
         else:
-            return f"🟢 마진 우수하나 MOQ {moq}개 주의. 처음엔 샘플로 품질 확인"
+            # MOQ 높은 경우 손절매 룰 언급 (Gemini CTO 권장)
+            return f"🟢 마진 우수하나 MOQ {moq}개 주의. 품질 확인 후 사입. 시즌 상품이면 종료 2주 전 손절 기준 설정"
 
 
 # 하위 호환성을 위한 별칭

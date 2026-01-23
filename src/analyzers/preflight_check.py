@@ -36,6 +36,8 @@ class ViolationType(Enum):
     INTELLECTUAL_PROPERTY = "지식재산권 침해 가능성"
     # v3.5.1 추가 (Gemini 피드백 - 의료기기법 위반)
     MEDICAL_DEVICE = "의료기기 오인 표현 (인증 필요)"
+    # v3.5.2 추가 (Gemini CTO 피드백 - KC 인증 강화)
+    ELECTRICAL_PRODUCT = "전기/전자 제품 (KC 인증 필수)"
 
 
 @dataclass
@@ -185,6 +187,18 @@ class PreFlightChecker:
             (r"(유아|아기|어린이).{0,5}용", "아동용 제품 (인증 확인 필요)"),
             (r"(\d+)개월.{0,5}(이상|부터|사용)", "사용 연령 표시 (검증 필요)"),
             (r"(출산|임산부|임신).{0,5}(선물|용품)", "임산부/출산 용품"),
+        ]
+
+        # 9-1. 전기/전자 제품 (HIGH - KC 인증 필수) - Gemini CTO 피드백 반영
+        self.electrical_product_patterns = [
+            (r"(충전|충전식|리튬|배터리|건전지)", "배터리 제품 (KC 인증 필수)"),
+            (r"(USB|유선|무선).{0,5}(충전|전원)", "전원 연결 제품 (KC 인증)"),
+            (r"(콘센트|플러그|어댑터|전원)", "전기 연결 제품 (KC 인증 필수)"),
+            (r"(AC|DC|220V|110V|볼트)", "전압 표시 제품 (KC 인증)"),
+            (r"(LED|조명|램프|전구)", "조명 제품 (KC 인증 확인)"),
+            (r"(히터|온열|발열|난방)", "발열 제품 (KC 인증 필수)"),
+            (r"(모터|팬|선풍기|환풍기)", "모터 제품 (KC 인증)"),
+            (r"(블루투스|무선|RF|wifi)", "무선 통신 제품 (KC 인증)"),
         ]
 
         # 10. 지식재산권 침해 (HIGH - 디자인/캐릭터)
@@ -358,6 +372,18 @@ class PreFlightChecker:
                     suggestion="아동용 제품은 KC인증/HACCP 등 필수. 인증서 확인 필요"
                 ))
 
+        # 9-1. 전기/전자 제품 (HIGH) - Gemini CTO 피드백 반영
+        for pattern, desc in self.electrical_product_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                violations.append(Violation(
+                    type=ViolationType.ELECTRICAL_PRODUCT,
+                    matched_text=match.group(),
+                    pattern=desc,
+                    severity="high",
+                    suggestion="전기/배터리 제품은 KC 인증 필수. 인증서 없으면 통관 불가 및 과태료"
+                ))
+
         # 10. 지식재산권 (HIGH)
         for pattern, desc in self.ip_patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
@@ -452,6 +478,10 @@ class PreFlightChecker:
             ViolationType.MEDICAL_DEVICE: [
                 "자세 도움", "바른 자세 습관", "편안한 사용감",
                 "일상 관리", "컨디션 케어", "릴렉스",
+            ],
+            ViolationType.ELECTRICAL_PRODUCT: [
+                "KC 인증 확인 필수", "인증서 보유 확인",
+                "정품 인증", "안전 검사 완료",
             ],
         }
         return alternatives.get(violation.type, [])
