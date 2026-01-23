@@ -7,7 +7,11 @@ price_tracker.py - 경쟁사 가격 추적 모듈 (Phase 6-3)
 3. 가격 변동 감지 및 알림
 4. 전략적 가격 조정 제안
 
-Gemini CTO 권장: URL 기반 가격 모니터링 (Option A)
+v3.6.1 (Gemini CTO 피드백 반영):
+- 하이브리드 임계값: % AND 절대금액
+- 가격 전략: "최저가-100원" 방식 (마진 방어 우선)
+- Tier 기반 노출권 분류
+- 가격 100원 단위 라운딩
 """
 
 from dataclasses import dataclass, field
@@ -41,6 +45,19 @@ class MarketPlatform(Enum):
     ELEVEN = "11st"
     AUCTION = "auction"
     OTHER = "other"
+
+
+class ExposureTier(Enum):
+    """노출 등급 (Gemini CTO 피드백)"""
+    TIER1_EXPOSURE = "tier1"      # 노출권: 최저가 대비 +2% 이내
+    TIER2_DEFENSE = "tier2"       # 방어권: 최저가 대비 +10% 이내
+    TIER3_OUT = "tier3"           # 이탈권: 그 외 (사실상 노출 안 됨)
+
+
+class PricingStrategyType(Enum):
+    """가격 전략 유형"""
+    PRICE_LEADERSHIP = "price_leadership"   # 최저가 경쟁 가능
+    PREMIUM_POSITIONING = "premium"         # 가격 경쟁 포기, 차별화 필요
 
 
 @dataclass
@@ -96,14 +113,24 @@ class PricingStrategy:
     recommended_price: int
     recommendation: str
     margin_at_recommended: float  # 추천가에서의 예상 마진율
+    strategy_type: PricingStrategyType = PricingStrategyType.PRICE_LEADERSHIP
+    exposure_tier: ExposureTier = ExposureTier.TIER3_OUT
 
 
 class PriceTracker:
     """경쟁사 가격 추적기"""
 
-    # 가격 변동 임계값
-    ALERT_THRESHOLD_PERCENT = 5.0    # 5% 이상 변동 시 알림
+    # 가격 변동 임계값 (Gemini CTO: 하이브리드 방식)
+    ALERT_THRESHOLD_PERCENT = 5.0      # 5% 이상 변동 시 알림
     CRITICAL_THRESHOLD_PERCENT = 15.0  # 15% 이상 변동 시 긴급 알림
+    MIN_ALERT_AMOUNT = 1000            # 최소 1,000원 이상 변동 시에만 알림
+
+    # 노출권 임계값 (Gemini CTO 피드백)
+    TIER1_THRESHOLD = 0.02   # 최저가 대비 +2% 이내 = 노출권
+    TIER2_THRESHOLD = 0.10   # 최저가 대비 +10% 이내 = 방어권
+
+    # 가격 전략 상수
+    PRICE_UNDERCUT_AMOUNT = 100  # 최저가보다 100원 저렴하게 설정
 
     # URL 패턴으로 플랫폼 감지
     PLATFORM_PATTERNS = {
@@ -177,7 +204,12 @@ class PriceTracker:
         new_price: int,
         source: str = "manual"
     ) -> Optional[PriceAlert]:
-        """가격 업데이트 및 변동 감지"""
+        """가격 업데이트 및 변동 감지
+
+        Gemini CTO 피드백 반영:
+        - 하이브리드 임계값: % AND 절대금액 모두 충족해야 WARNING 이상
+        - 0원 방어 로직 추가
+        """
         if product_id not in self.products:
             return None
 
@@ -197,14 +229,23 @@ class PriceTracker:
             return None
 
         change_amount = new_price - old_price
-        change_percent = (change_amount / old_price) * 100 if old_price > 0 else 0
+        abs_change_amount = abs(change_amount)
+
+        # 0원 방어 로직 (Gemini CTO 코드리뷰)
+        if old_price == 0:
+            change_percent = 0.0
+        else:
+            change_percent = (change_amount / old_price) * 100
+
         change_type = PriceChangeType.INCREASE if change_amount > 0 else PriceChangeType.DECREASE
 
-        # 알림 레벨 결정
+        # 알림 레벨 결정 (하이브리드 임계값)
+        # Gemini CTO: % AND 절대금액 모두 충족해야 의미있는 알림
         abs_percent = abs(change_percent)
-        if abs_percent >= self.CRITICAL_THRESHOLD_PERCENT:
+
+        if abs_percent >= self.CRITICAL_THRESHOLD_PERCENT and abs_change_amount >= self.MIN_ALERT_AMOUNT:
             alert_level = AlertLevel.CRITICAL
-        elif abs_percent >= self.ALERT_THRESHOLD_PERCENT:
+        elif abs_percent >= self.ALERT_THRESHOLD_PERCENT and abs_change_amount >= self.MIN_ALERT_AMOUNT:
             alert_level = AlertLevel.WARNING
         else:
             alert_level = AlertLevel.INFO
@@ -224,7 +265,7 @@ class PriceTracker:
             change_type=change_type,
             old_price=old_price,
             new_price=new_price,
-            change_amount=abs(change_amount),
+            change_amount=abs_change_amount,
             change_percent=abs(change_percent),
             alert_level=alert_level,
             message=message,
@@ -289,13 +330,46 @@ class PriceTracker:
                 return True
         return False
 
+    @staticmethod
+    def round_price(price: int) -> int:
+        """가격 100원 단위 라운딩 (Gemini CTO 코드리뷰)
+
+        예: 14237원 → 14200원
+        """
+        return round(price, -2)
+
+    def get_exposure_tier(self, my_price: int, min_competitor_price: int) -> ExposureTier:
+        """노출 등급 계산 (Gemini CTO Q3)
+
+        - Tier 1 (노출권): 최저가 대비 +2% 이내
+        - Tier 2 (방어권): 최저가 대비 +10% 이내
+        - Tier 3 (이탈권): 그 외
+        """
+        if min_competitor_price <= 0:
+            return ExposureTier.TIER3_OUT
+
+        price_diff_ratio = (my_price - min_competitor_price) / min_competitor_price
+
+        if price_diff_ratio <= self.TIER1_THRESHOLD:
+            return ExposureTier.TIER1_EXPOSURE
+        elif price_diff_ratio <= self.TIER2_THRESHOLD:
+            return ExposureTier.TIER2_DEFENSE
+        else:
+            return ExposureTier.TIER3_OUT
+
     def get_pricing_strategy(
         self,
         product_id: str,
         my_cost: int,
         target_margin: float = 30.0
     ) -> Optional[PricingStrategy]:
-        """가격 전략 제안"""
+        """가격 전략 제안
+
+        Gemini CTO 피드백 반영 (Q2):
+        - "평균*0.95" 방식 → "최저가-100원" 방식으로 변경
+        - 마진 방어 불가 시 PREMIUM_POSITIONING 전략 제안
+        - 가격 100원 단위 라운딩
+        """
         if product_id not in self.products:
             return None
 
@@ -313,31 +387,37 @@ class PriceTracker:
         min_price = min(competitor_prices)
         max_price = max(competitor_prices)
 
-        # 추천 가격 계산 (경쟁력 있으면서 마진 확보)
         # 목표 마진을 위한 최소 판매가
         min_price_for_margin = int(my_cost / (1 - target_margin / 100))
 
-        # 경쟁사 평균보다 약간 낮거나 같게 설정 (마진이 허용하는 범위에서)
-        if avg_price >= min_price_for_margin:
-            recommended = min(avg_price, int(avg_price * 0.95))  # 5% 저렴하게
-            if recommended < min_price_for_margin:
-                recommended = min_price_for_margin
+        # Gemini CTO 피드백: "최저가 - 100원" 전략
+        # (네이버 쇼핑 로직상 최저가가 노출 우위)
+        target_price = min_price - self.PRICE_UNDERCUT_AMOUNT
+
+        if target_price >= min_price_for_margin:
+            # 마진 방어 가능 → 가격 경쟁
+            strategy_type = PricingStrategyType.PRICE_LEADERSHIP
+            recommended = self.round_price(target_price)
+            recommendation = f"🟢 최저가({min_price:,}원) 대비 100원 저렴. 네이버 노출 우위 점유"
         else:
-            # 마진을 위해서는 평균보다 비싸게 팔아야 함
-            recommended = min_price_for_margin
+            # 마진 방어 불가 → 차별화 전략
+            strategy_type = PricingStrategyType.PREMIUM_POSITIONING
+            # 적정 마진가로 설정
+            recommended = self.round_price(min_price_for_margin)
+            recommendation = (
+                f"🔴 가격 경쟁 불가. 최저가({min_price:,}원)보다 마진 방어선({min_price_for_margin:,}원)이 높음.\n"
+                f"   → 상세페이지 강화/사은품/무료배송으로 차별화 필요"
+            )
 
         # 추천가에서의 마진율
         margin_at_recommended = ((recommended - my_cost) / recommended) * 100 if recommended > 0 else 0
 
-        # 추천 메시지 생성
-        if recommended <= min_price:
-            recommendation = f"🔴 현재 시장 최저가({min_price:,}원) 이하. 차별화 전략 필요"
-        elif recommended < avg_price:
-            recommendation = f"🟢 경쟁 가격({avg_price:,}원) 대비 저렴. 가격 경쟁력 확보"
-        elif margin_at_recommended < 15:
-            recommendation = f"🟡 마진율 {margin_at_recommended:.1f}%로 박함. 비용 절감 또는 차별화 필요"
-        else:
-            recommendation = f"🟢 적정 마진({margin_at_recommended:.1f}%) 확보 가능"
+        # 노출 등급 계산
+        exposure_tier = self.get_exposure_tier(recommended, min_price)
+
+        # 추가 경고 메시지
+        if margin_at_recommended < 15:
+            recommendation += f"\n⚠️ 마진율 {margin_at_recommended:.1f}%로 박함. 원가 절감 검토"
 
         return PricingStrategy(
             product_id=product_id,
@@ -347,11 +427,18 @@ class PriceTracker:
             max_competitor_price=max_price,
             recommended_price=recommended,
             recommendation=recommendation,
-            margin_at_recommended=margin_at_recommended
+            margin_at_recommended=margin_at_recommended,
+            strategy_type=strategy_type,
+            exposure_tier=exposure_tier
         )
 
     def get_competitive_analysis(self, my_price: int) -> Dict:
-        """경쟁력 분석"""
+        """경쟁력 분석
+
+        Gemini CTO Q3 피드백 반영:
+        - 기존 포지션 분류 유지 (호환성)
+        - 노출 등급(Tier) 추가: 실무적으로 더 유의미한 지표
+        """
         if not self.products:
             return {
                 "total_competitors": 0,
@@ -360,6 +447,8 @@ class PriceTracker:
                 "expensive_count": 0,
                 "position": "데이터 없음",
                 "avg_competitor_price": 0,
+                "exposure_tier": ExposureTier.TIER3_OUT.value,
+                "tier_message": "경쟁사 데이터 없음",
             }
 
         prices = [p.current_price for p in self.products.values() if p.is_active]
@@ -372,13 +461,16 @@ class PriceTracker:
                 "expensive_count": 0,
                 "position": "활성 경쟁사 없음",
                 "avg_competitor_price": 0,
+                "exposure_tier": ExposureTier.TIER3_OUT.value,
+                "tier_message": "활성 경쟁사 없음",
             }
 
         cheaper = sum(1 for p in prices if p < my_price)
         same = sum(1 for p in prices if p == my_price)
         expensive = sum(1 for p in prices if p > my_price)
+        min_price = min(prices)
 
-        # 내 가격 포지션 결정
+        # 기존 포지션 분류 (호환성 유지)
         total = len(prices)
         if cheaper == 0:
             position = "최저가"
@@ -391,6 +483,16 @@ class PriceTracker:
         else:
             position = "중간 그룹"
 
+        # 노출 등급 계산 (Gemini CTO Q3)
+        exposure_tier = self.get_exposure_tier(my_price, min_price)
+
+        # Tier별 메시지
+        tier_messages = {
+            ExposureTier.TIER1_EXPOSURE: f"🟢 노출권: 최저가({min_price:,}원) 대비 +2% 이내. 네이버 쇼핑 상위 노출 가능",
+            ExposureTier.TIER2_DEFENSE: f"🟡 방어권: 최저가 대비 +10% 이내. 쿠폰/무배 적용 시 경쟁 가능",
+            ExposureTier.TIER3_OUT: f"🔴 이탈권: 최저가 대비 +10% 초과. 사실상 노출 안 됨. 차별화 필수",
+        }
+
         return {
             "total_competitors": total,
             "cheaper_count": cheaper,
@@ -398,8 +500,11 @@ class PriceTracker:
             "expensive_count": expensive,
             "position": position,
             "avg_competitor_price": sum(prices) // len(prices),
-            "min_price": min(prices),
+            "min_price": min_price,
             "max_price": max(prices),
+            # 새로운 Tier 기반 분석 (Gemini CTO Q3)
+            "exposure_tier": exposure_tier.value,
+            "tier_message": tier_messages[exposure_tier],
         }
 
     def export_to_dict(self) -> Dict:

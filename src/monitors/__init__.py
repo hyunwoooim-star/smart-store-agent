@@ -11,6 +11,8 @@ from .price_tracker import (
     PriceChangeType,
     AlertLevel,
     MarketPlatform,
+    ExposureTier,
+    PricingStrategyType,
     create_tracker,
 )
 
@@ -31,5 +33,7 @@ __all__ = [
     "PriceChangeType",
     "AlertLevel",
     "MarketPlatform",
+    "ExposureTier",
+    "PricingStrategyType",
     "create_tracker",
 ]

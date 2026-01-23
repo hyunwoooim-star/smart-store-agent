@@ -9,6 +9,12 @@ test_price_tracker.py - 경쟁사 가격 추적 테스트 (Phase 6-3)
 5. 경쟁력 분석
 6. 가격 전략 제안
 7. 데이터 내보내기/불러오기
+
+v3.6.1 (Gemini CTO 피드백 반영):
+8. 하이브리드 임계값 테스트
+9. 노출 등급(Tier) 테스트
+10. 가격 라운딩 테스트
+11. 엣지케이스 테스트
 """
 
 import pytest
@@ -28,6 +34,8 @@ from src.monitors.price_tracker import (
     PriceChangeType,
     AlertLevel,
     MarketPlatform,
+    ExposureTier,
+    PricingStrategyType,
     create_tracker,
 )
 
@@ -444,6 +452,250 @@ class TestEdgeCases:
         """존재하지 않는 알림 읽음 처리"""
         result = self.tracker.mark_alert_read("invalid_alert")
         assert result is False
+
+
+# ============================================
+# v3.6.1 Gemini CTO 피드백 반영 테스트
+# ============================================
+
+class TestHybridThreshold:
+    """Q1: 하이브리드 임계값 테스트 (% AND 절대금액)"""
+
+    def setup_method(self):
+        self.tracker = PriceTracker()
+
+    def test_low_price_high_percent_info(self):
+        """저가 상품 큰 퍼센트 변동 → INFO (절대금액 미달)
+
+        5,000원 상품에서 +10% (500원 변동)
+        퍼센트 조건은 충족하지만 절대금액(1,000원) 미달
+        """
+        product = self.tracker.add_product("저가 상품", "https://test.com", 5000)
+        alert = self.tracker.update_price(product.product_id, 5500)  # +10%, +500원
+
+        assert alert is not None
+        assert alert.change_percent == 10.0
+        assert alert.change_amount == 500
+        # 절대금액 조건 미달로 INFO
+        assert alert.alert_level == AlertLevel.INFO
+
+    def test_high_price_small_percent_warning(self):
+        """고가 상품 작은 퍼센트 큰 금액 → WARNING
+
+        100,000원 상품에서 +5% (5,000원 변동)
+        퍼센트 조건(5%) AND 절대금액 조건(1,000원) 모두 충족
+        """
+        product = self.tracker.add_product("고가 상품", "https://test.com", 100000)
+        alert = self.tracker.update_price(product.product_id, 105000)  # +5%, +5,000원
+
+        assert alert is not None
+        assert alert.change_percent == 5.0
+        assert alert.change_amount == 5000
+        assert alert.alert_level == AlertLevel.WARNING
+
+    def test_both_conditions_met_critical(self):
+        """두 조건 모두 충족 → CRITICAL
+
+        50,000원 상품에서 +20% (10,000원 변동)
+        """
+        product = self.tracker.add_product("테스트", "https://test.com", 50000)
+        alert = self.tracker.update_price(product.product_id, 60000)  # +20%, +10,000원
+
+        assert alert is not None
+        assert alert.change_percent == 20.0
+        assert alert.change_amount == 10000
+        assert alert.alert_level == AlertLevel.CRITICAL
+
+    def test_neither_condition_met_info(self):
+        """두 조건 모두 미충족 → INFO
+
+        50,000원 상품에서 +1% (500원 변동)
+        """
+        product = self.tracker.add_product("테스트", "https://test.com", 50000)
+        alert = self.tracker.update_price(product.product_id, 50500)  # +1%, +500원
+
+        assert alert is not None
+        assert alert.change_percent == 1.0
+        assert alert.change_amount == 500
+        assert alert.alert_level == AlertLevel.INFO
+
+
+class TestExposureTier:
+    """Q3: 노출 등급 (Tier) 테스트"""
+
+    def setup_method(self):
+        self.tracker = PriceTracker()
+        # 경쟁 상품들 (최저가 30,000원)
+        self.tracker.add_product("최저가", "https://a.com", 30000)
+        self.tracker.add_product("중간", "https://b.com", 35000)
+        self.tracker.add_product("고가", "https://c.com", 45000)
+
+    def test_tier1_exposure(self):
+        """Tier 1 노출권 (+2% 이내)"""
+        # 30,000원 최저가 대비 30,600원 = +2%
+        tier = self.tracker.get_exposure_tier(30600, 30000)
+        assert tier == ExposureTier.TIER1_EXPOSURE
+
+    def test_tier1_same_price(self):
+        """Tier 1 동일 가격"""
+        tier = self.tracker.get_exposure_tier(30000, 30000)
+        assert tier == ExposureTier.TIER1_EXPOSURE
+
+    def test_tier1_cheaper(self):
+        """Tier 1 최저가보다 저렴"""
+        tier = self.tracker.get_exposure_tier(29000, 30000)
+        assert tier == ExposureTier.TIER1_EXPOSURE
+
+    def test_tier2_defense(self):
+        """Tier 2 방어권 (+2~10%)"""
+        # 30,000원 대비 33,000원 = +10%
+        tier = self.tracker.get_exposure_tier(33000, 30000)
+        assert tier == ExposureTier.TIER2_DEFENSE
+
+    def test_tier3_out(self):
+        """Tier 3 이탈권 (+10% 초과)"""
+        # 30,000원 대비 34,000원 = +13%
+        tier = self.tracker.get_exposure_tier(34000, 30000)
+        assert tier == ExposureTier.TIER3_OUT
+
+    def test_competitive_analysis_has_tier(self):
+        """경쟁력 분석에 Tier 포함 확인"""
+        analysis = self.tracker.get_competitive_analysis(30500)  # +1.67%
+
+        assert "exposure_tier" in analysis
+        assert "tier_message" in analysis
+        assert analysis["exposure_tier"] == ExposureTier.TIER1_EXPOSURE.value
+
+
+class TestPriceRounding:
+    """코드리뷰: 가격 라운딩 (100원 단위) 테스트"""
+
+    def test_round_price_down(self):
+        """내림 라운딩"""
+        assert PriceTracker.round_price(14237) == 14200
+
+    def test_round_price_up(self):
+        """올림 라운딩"""
+        assert PriceTracker.round_price(14250) == 14200  # 정확히 50은 banker's rounding
+
+    def test_round_price_55(self):
+        """55 이상은 올림"""
+        assert PriceTracker.round_price(14255) == 14300
+
+    def test_round_price_already_rounded(self):
+        """이미 100원 단위"""
+        assert PriceTracker.round_price(14200) == 14200
+
+    def test_round_price_zero(self):
+        """0원"""
+        assert PriceTracker.round_price(0) == 0
+
+
+class TestPricingStrategyV2:
+    """Q2: 가격 전략 v2 테스트 (최저가-100원 방식)"""
+
+    def setup_method(self):
+        self.tracker = PriceTracker()
+        self.my_product = self.tracker.add_product(
+            name="내 상품",
+            url="https://myshop.com/product",
+            current_price=40000,
+            my_price=40000
+        )
+        # 경쟁 상품들 (최저가 35,000원)
+        self.tracker.add_product("경쟁A", "https://a.com", 35000)
+        self.tracker.add_product("경쟁B", "https://b.com", 42000)
+        self.tracker.add_product("경쟁C", "https://c.com", 45000)
+
+    def test_price_leadership_strategy(self):
+        """마진 여유 있을 때 → PRICE_LEADERSHIP"""
+        strategy = self.tracker.get_pricing_strategy(
+            self.my_product.product_id,
+            my_cost=20000,  # 원가 낮음
+            target_margin=30.0
+        )
+
+        assert strategy is not None
+        assert strategy.strategy_type == PricingStrategyType.PRICE_LEADERSHIP
+        # 최저가(35,000) - 100 = 34,900 → 라운딩 34,900
+        assert strategy.recommended_price == 34900
+        assert "노출 우위" in strategy.recommendation or "최저가" in strategy.recommendation
+
+    def test_premium_positioning_strategy(self):
+        """마진 방어 불가 시 → PREMIUM_POSITIONING"""
+        strategy = self.tracker.get_pricing_strategy(
+            self.my_product.product_id,
+            my_cost=30000,  # 원가 높음 (마진 방어선 > 최저가)
+            target_margin=30.0
+        )
+
+        assert strategy is not None
+        assert strategy.strategy_type == PricingStrategyType.PREMIUM_POSITIONING
+        # 마진 방어선: 30000 / 0.7 = 42857 → 라운딩 42900
+        assert strategy.recommended_price >= 42800
+        assert "차별화" in strategy.recommendation or "경쟁 불가" in strategy.recommendation
+
+    def test_strategy_has_exposure_tier(self):
+        """전략에 노출 등급 포함"""
+        strategy = self.tracker.get_pricing_strategy(
+            self.my_product.product_id,
+            my_cost=20000,
+            target_margin=30.0
+        )
+
+        assert strategy is not None
+        assert hasattr(strategy, "exposure_tier")
+        assert strategy.exposure_tier in [
+            ExposureTier.TIER1_EXPOSURE,
+            ExposureTier.TIER2_DEFENSE,
+            ExposureTier.TIER3_OUT
+        ]
+
+
+class TestGeminiEdgeCases:
+    """Gemini CTO Q5: 추가 엣지케이스 테스트"""
+
+    def setup_method(self):
+        self.tracker = PriceTracker()
+
+    def test_sold_out_product_handling(self):
+        """품절 상품 처리 (가격 0원으로 들어온 경우)
+
+        TODO: 실제 구현에서는 품절 상품을 평균 계산에서 제외해야 함
+        현재는 0원으로 처리되는 케이스 테스트
+        """
+        self.tracker.add_product("정상", "https://a.com", 30000)
+        self.tracker.add_product("품절", "https://b.com", 0)  # 품절 = 가격 0
+        self.tracker.add_product("정상2", "https://c.com", 40000)
+
+        analysis = self.tracker.get_competitive_analysis(35000)
+
+        # 0원 상품도 포함되어 평균이 낮아짐 (개선 포인트)
+        assert analysis["total_competitors"] == 3
+        assert analysis["min_price"] == 0
+
+    def test_price_change_from_to_zero(self):
+        """가격 → 0원 변경 (품절 처리)"""
+        product = self.tracker.add_product("품절 예정", "https://test.com", 30000)
+        alert = self.tracker.update_price(product.product_id, 0)
+
+        assert alert is not None
+        assert alert.change_type == PriceChangeType.DECREASE
+        assert alert.new_price == 0
+
+    def test_very_high_price_change(self):
+        """극단적 가격 변동 (999% 인상)"""
+        product = self.tracker.add_product("테스트", "https://test.com", 1000)
+        alert = self.tracker.update_price(product.product_id, 10990)  # +999%
+
+        assert alert is not None
+        assert alert.change_percent > 900
+        assert alert.alert_level == AlertLevel.CRITICAL
+
+    def test_min_competitor_price_zero(self):
+        """최저가가 0원일 때 Tier 계산"""
+        tier = self.tracker.get_exposure_tier(30000, 0)
+        assert tier == ExposureTier.TIER3_OUT  # 0으로 나누기 방지
 
 
 # pytest 실행용
