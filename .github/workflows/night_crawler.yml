@@ -1,0 +1,137 @@
+# Night Crawler - 밤샘 소싱 자동화
+#
+# 매일 새벽 1시 (KST)에 실행
+# UTC 16:00 = KST 01:00
+
+name: Night Crawler
+
+on:
+  schedule:
+    # 매일 새벽 1시 (KST) = UTC 16:00
+    - cron: '0 16 * * *'
+
+  # 수동 실행 가능
+  workflow_dispatch:
+    inputs:
+      max_keywords:
+        description: '크롤링할 키워드 수'
+        required: false
+        default: '5'
+      mock_mode:
+        description: 'Mock 모드 사용 (true/false)'
+        required: false
+        default: 'true'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 최대 2시간
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Night Crawler
+        env:
+          # API 키들 (GitHub Secrets에서 설정)
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+          # 알림 설정
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          KAKAO_ACCESS_TOKEN: ${{ secrets.KAKAO_ACCESS_TOKEN }}
+
+          # 크롤러 설정
+          CRAWLER_MAX_KEYWORDS: ${{ github.event.inputs.max_keywords || '5' }}
+          CRAWLER_MOCK_MODE: ${{ github.event.inputs.mock_mode || 'true' }}
+        run: |
+          echo "Night Crawler 시작: $(date)"
+          python -m src.crawler.night_crawler
+          echo "Night Crawler 완료: $(date)"
+
+      - name: Send Slack Notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            python -c "
+from src.notifications.slack_notifier import SlackNotifier
+notifier = SlackNotifier()
+# 결과 알림은 크롤러 내부에서 처리됨
+print('Notification sent')
+"
+          else
+            echo "SLACK_WEBHOOK_URL not set, skipping notification"
+          fi
+
+      - name: Upload crawl results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crawl-results-${{ github.run_number }}
+          path: data/crawler/
+          retention-days: 7
+
+  # 모닝 알림 (별도 작업)
+  morning-notification:
+    runs-on: ubuntu-latest
+    # 새벽 크롤링 완료 후 모닝 알림
+    needs: crawl
+    if: success()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Send Morning Briefing
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          KAKAO_ACCESS_TOKEN: ${{ secrets.KAKAO_ACCESS_TOKEN }}
+        run: |
+          python -c "
+import os
+from src.notifications.slack_notifier import SlackNotifier
+from src.notifications.kakao_notifier import KakaoNotifier
+from src.crawler.repository import CandidateRepository
+
+repo = CandidateRepository()
+stats = repo.get_stats()
+
+# 슬랙 알림
+slack = SlackNotifier()
+top_candidates = [
+    {'title': c.title_kr, 'margin': c.estimated_margin_rate, 'price': c.recommended_price}
+    for c in repo.get_pending_candidates()[:5]
+]
+slack.send_morning_briefing(stats['pending'], top_candidates)
+
+# 카카오톡 알림
+kakao = KakaoNotifier()
+kakao.send_morning_briefing(stats['pending'], stats['avg_margin'])
+
+print('Morning briefing sent!')
+"

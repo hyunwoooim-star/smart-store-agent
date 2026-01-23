@@ -1,16 +1,18 @@
-"""Streamlit 탭 모듈"""
-from .margin_tab import render as render_margin
-from .scraping_tab import render as render_scraping
-from .preflight_tab import render as render_preflight
-from .review_tab import render as render_review
-from .price_tab import render as render_price
-from .oneclick_tab import render as render_oneclick
+"""Streamlit 탭 모듈 (v4.0)"""
+from . import margin_tab
+from . import scraping_tab
+from . import preflight_tab
+from . import review_tab
+from . import price_tab
+from . import oneclick_tab
+from . import morning_tab  # v4.0 NEW!
 
 __all__ = [
-    "render_margin",
-    "render_scraping",
-    "render_preflight",
-    "render_review",
-    "render_price",
-    "render_oneclick",
+    "margin_tab",
+    "scraping_tab",
+    "preflight_tab",
+    "review_tab",
+    "price_tab",
+    "oneclick_tab",
+    "morning_tab",
 ]

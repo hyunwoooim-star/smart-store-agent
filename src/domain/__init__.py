@@ -1,4 +1,4 @@
-"""도메인 모듈 (v3.3) - 순수 비즈니스 로직"""
+"""도메인 모듈 (v4.0) - 순수 비즈니스 로직"""
 from .models import (
     Product,
     CostResult,
@@ -8,15 +8,32 @@ from .models import (
     SupplierRisk,
 )
 from .logic import LandedCostCalculator, MarginCalculator
+from .crawler_models import (
+    SourcingKeyword,
+    SourcingCandidate,
+    UploadHistory,
+    CrawlStats,
+    DetailPageContent,
+    CandidateStatus,
+    CrawlRiskLevel,
+)
 
 __all__ = [
-    # 모델
+    # 기본 모델
     "Product",
     "CostResult",
     "CostBreakdown",
     "RiskLevel",
     "MarketType",
     "SupplierRisk",
+    # 크롤러 모델 (v4.0)
+    "SourcingKeyword",
+    "SourcingCandidate",
+    "UploadHistory",
+    "CrawlStats",
+    "DetailPageContent",
+    "CandidateStatus",
+    "CrawlRiskLevel",
     # 로직
     "LandedCostCalculator",
     "MarginCalculator",  # 하위 호환성

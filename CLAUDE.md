@@ -1,29 +1,24 @@
 # Smart Store Agent - Claude 프로젝트 컨텍스트
 
 ## 프로젝트 개요
-AI 에이전트 기반 네이버 스마트스토어 자동화 시스템 (v3.6.1)
+AI 에이전트 기반 네이버 스마트스토어 자동화 시스템 (v4.0.0)
 
 **GitHub**: https://github.com/hyunwoooim-star/smart-store-agent
 
 ## 핵심 목표
-"틈새 시장 발굴 → 소싱 검증 → 콘텐츠 생성" 과정 자동화
+"밤새 일하는 AI, 아침에 결재하는 사장님" - Human-in-the-loop 자동화
 
-## 현재 상태 (v3.6.2 - Phase 8 완료)
-- **Phase 1**: 핵심 엔진 개발 ✅ 완료
-- **Phase 2**: Streamlit 대시보드 ✅ 완료
-- **Phase 3.5**: 1688 스크래핑 (Apify API) ✅ 완료
-- **Phase 4**: Pre-Flight Check ✅ 완료
-- **Phase 5.1**: 리뷰 분석 ✅ 완료
-- **Phase 5.2**: Pydantic + Supabase 캐싱 ✅ 완료
-- **Phase 6-1**: 엑셀 생성기 ✅ 완료
-- **Phase 6-2**: 테스트 코드 보강 ✅ 완료
-- **Phase 7**: 1688 실시간 연동 ✅ 완료 (Apify + 테스트)
-- **Phase 6-3**: 경쟁사 가격 추적 ✅ 완료 (336 tests)
-- **Phase 8**: Streamlit UI 개선 ✅ 완료
-  - 가격 추적 대시보드 탭 추가 (5번째 탭)
-  - Tier 기반 경쟁력 분석 시각화
-  - 가격 전략 제안 UI (Price Leadership vs Premium)
-- **Phase 9**: 자동 모니터링 (스케줄러) ← 다음 예정
+## 현재 상태 (v4.0.0 - Night Crawler 완료)
+- **Phase 1-8**: 기존 기능 ✅ 완료
+- **Phase 9**: 자동 모니터링 ✅ 완료
+- **Phase 10**: 원클릭 소싱 ✅ 완료
+- **Phase 11**: Night Crawler v4.0 ✅ 완료 (NEW!)
+  - 밤샘 소싱 봇 (60~180초 랜덤 대기)
+  - 3단계 필터링 (기본/마진/리스크)
+  - 모닝 브리핑 UI (틴더 스타일)
+  - PAS 프레임워크 상세페이지 생성
+  - 슬랙/카카오톡 알림
+  - GitHub Actions 스케줄러
 
 ## 기술 스택
 - 오케스트레이션: Claude Code CLI
