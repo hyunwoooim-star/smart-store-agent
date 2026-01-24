@@ -1,7 +1,11 @@
 """
-detail_page_generator.py - 상세페이지 자동 생성 (Phase 10)
+detail_page_generator.py - 상세페이지 자동 생성 (v4.0)
 
-Gemini CTO 권장: "콘텐츠 생성이 병목. 상세페이지 초안 생성 기능 최우선"
+v4.0 업데이트 (Gemini CTO 권장):
+- google.generativeai → google.genai SDK 마이그레이션
+- Client-centric 패턴 적용
+- gemini-2.0-flash 모델 업그레이드
+- response_mime_type="application/json" 강제
 
 사용법:
     generator = DetailPageGenerator(api_key="...")
@@ -48,7 +52,10 @@ class ProductInput:
 
 
 class DetailPageGenerator:
-    """Gemini 기반 상세페이지 생성기"""
+    """Gemini 기반 상세페이지 생성기 (v4.0 - google.genai SDK)"""
+
+    # 모델 설정
+    DEFAULT_MODEL = "gemini-2.0-flash"
 
     SYSTEM_PROMPT = """당신은 10년 차 스마트스토어 MD이자 카피라이터입니다.
 상품 스펙을 받으면, 네이버 스마트스토어에 등록할 상세페이지 텍스트를 작성합니다.
@@ -80,19 +87,18 @@ class DetailPageGenerator:
         Args:
             api_key: Google API 키 (없으면 환경변수에서 로드)
         """
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-        self._model = None
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        self._client = None
 
-    def _get_model(self):
-        """Gemini 모델 초기화 (lazy loading)"""
-        if self._model is None:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            self._model = genai.GenerativeModel("gemini-1.5-flash")
-        return self._model
+    def _get_client(self):
+        """Gemini 클라이언트 초기화 (lazy loading, v4.0)"""
+        if self._client is None:
+            from google import genai
+            self._client = genai.Client(api_key=self.api_key)
+        return self._client
 
     def generate(self, product: ProductInput) -> DetailPageResult:
-        """상세페이지 생성
+        """상세페이지 생성 (v4.0 - google.genai SDK)
 
         Args:
             product: 상품 정보
@@ -101,17 +107,24 @@ class DetailPageGenerator:
             DetailPageResult: 생성된 상세페이지 콘텐츠
         """
         if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY가 설정되지 않았습니다.")
+            raise ValueError("GOOGLE_API_KEY 또는 GEMINI_API_KEY가 설정되지 않았습니다.")
+
+        from google.genai import types
 
         prompt = self._build_prompt(product)
-        model = self._get_model()
+        client = self._get_client()
 
-        response = model.generate_content(
-            [self.SYSTEM_PROMPT, prompt],
-            generation_config={
-                "temperature": 0.7,
-                "max_output_tokens": 2000,
-            }
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+            max_output_tokens=2000,
+            system_instruction=self.SYSTEM_PROMPT,
+            response_mime_type="application/json"
+        )
+
+        response = client.models.generate_content(
+            model=self.DEFAULT_MODEL,
+            contents=prompt,
+            config=config
         )
 
         return self._parse_response(response.text)

@@ -9,9 +9,10 @@ openpyxl>=3.1.0      # Excel 파일 처리
 python-dotenv>=1.0.0  # 환경변수 관리
 
 # ===========================================
-# AI/ML - Gemini API
+# AI/ML - Gemini API (v4.0 - 신규 SDK)
 # ===========================================
-google-generativeai>=0.3.0  # Gemini API (Text + Vision)
+google-genai>=0.1.0         # 신규 SDK (Client-centric, gemini-2.0-flash)
+# google-generativeai>=0.3.0  # 레거시 SDK (deprecated)
 
 # ===========================================
 # Database - Supabase
@@ -28,6 +29,7 @@ aiohttp>=3.9.0
 # UI - Streamlit 대시보드 (Phase 2)
 # ===========================================
 streamlit>=1.30.0     # 웹 대시보드
+plotly>=5.18.0        # 인터랙티브 차트 (v4.2 UI)
 
 # ===========================================
 # 1688 Scraping - Apify API (Phase 3.5 Pivot)

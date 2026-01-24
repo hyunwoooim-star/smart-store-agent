@@ -230,13 +230,16 @@ class NightCrawler:
 
             client = ApifyClient(api_token)
 
-            run = client.actor("ecomscrape/1688-search-scraper").call(
+            # 2025년 최신 Actor: songd/1688-search-scraper
+            # 참고: https://apify.com/songd/1688-search-scraper
+            print(f"  [Apify] songd/1688-search-scraper 실행 중...")
+
+            run = client.actor("songd/1688-search-scraper").call(
                 run_input={
-                    "keyword": keyword,
-                    "maxItems": 50,
-                    "proxyConfiguration": {
-                        "useApifyProxy": True,
-                        "apifyProxyGroups": ["RESIDENTIAL"]
+                    "searches": [{"keyword": keyword}],  # 검색어 배열
+                    "maxPagesPerSearch": 1,  # 페이지당 ~100개 상품
+                    "proxySettings": {
+                        "useApifyProxy": True
                     }
                 },
                 timeout_secs=300,
@@ -244,19 +247,42 @@ class NightCrawler:
             )
 
             results = client.dataset(run["defaultDatasetId"]).list_items().items
+            print(f"  [Apify] {len(results)}개 결과 수신")
 
-            # 결과 정규화
+            # 결과 정규화 (songd actor 응답 형식에 맞춤)
             normalized = []
             for item in results:
+                # 가격 파싱 (문자열일 수 있음)
+                price_raw = item.get("price", 0)
+                if isinstance(price_raw, str):
+                    price_raw = price_raw.replace("¥", "").replace(",", "").strip()
+                    try:
+                        price = float(price_raw.split("-")[0])  # "10-20" → 10
+                    except:
+                        price = 0
+                else:
+                    price = float(price_raw or 0)
+
+                # 판매량 파싱
+                sales_raw = item.get("sales", item.get("sold", 0))
+                if isinstance(sales_raw, str):
+                    sales_raw = sales_raw.replace("+", "").replace("件", "").replace(",", "")
+                    try:
+                        sales = int(sales_raw)
+                    except:
+                        sales = 0
+                else:
+                    sales = int(sales_raw or 0)
+
                 normalized.append({
-                    "url": item.get("url", ""),
-                    "title": item.get("title", ""),
-                    "price": float(item.get("price", 0) or 0),
-                    "sales_count": int(item.get("sales", 0) or 0),
-                    "shop_name": item.get("shopName", ""),
-                    "shop_rating": float(item.get("shopRating", 0) or 0),
-                    "images": item.get("images", []),
-                    "min_order": int(item.get("minOrder", 1) or 1),
+                    "url": item.get("url", item.get("productUrl", "")),
+                    "title": item.get("title", item.get("name", "")),
+                    "price": price,
+                    "sales_count": sales,
+                    "shop_name": item.get("shopName", item.get("seller", "")),
+                    "shop_rating": float(item.get("shopRating", item.get("rating", 0)) or 0),
+                    "images": item.get("images", [item.get("image", "")]),
+                    "min_order": int(item.get("minOrder", item.get("moq", 1)) or 1),
                 })
 
             return normalized

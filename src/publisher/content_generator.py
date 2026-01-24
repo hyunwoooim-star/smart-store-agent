@@ -1,12 +1,15 @@
 """
-content_generator.py - 상세페이지 콘텐츠 생성기 (v4.0)
+content_generator.py - 상세페이지 콘텐츠 생성기 (v4.1)
 
 PAS 프레임워크 적용:
 - Problem: 고객이 겪는 문제/불편함
 - Agitation: 그 문제를 방치하면 어떻게 되는지
 - Solution: 이 상품이 어떻게 해결해주는지
 
-Gemini CTO 승인: "나중에 적용하되, 구조는 미리 만들어 두세요"
+v4.1 업데이트 (Gemini CTO 권장):
+- google.generativeai → google.genai SDK 마이그레이션
+- Client-centric 패턴 적용
+- gemini-2.0-flash 모델 업그레이드
 """
 
 import os
@@ -21,7 +24,7 @@ from src.domain.crawler_models import SourcingCandidate, DetailPageContent
 class ContentGeneratorConfig:
     """콘텐츠 생성기 설정"""
     use_ai: bool = True                 # AI 생성 사용 여부
-    ai_model: str = "gemini-1.5-flash"  # 사용할 AI 모델
+    ai_model: str = "gemini-2.0-flash"  # 사용할 AI 모델
     language: str = "ko"                # 출력 언어
 
 
@@ -64,19 +67,18 @@ class ContentGenerator:
         self._gemini_client = None
 
     def _get_gemini_client(self):
-        """Gemini 클라이언트 가져오기 (지연 로딩)"""
+        """Gemini 클라이언트 가져오기 (지연 로딩, v4.1 - google.genai SDK)"""
         if self._gemini_client is None:
-            api_key = os.getenv("GOOGLE_API_KEY")
+            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if api_key:
                 try:
-                    import google.generativeai as genai
-                    genai.configure(api_key=api_key)
-                    self._gemini_client = genai.GenerativeModel(self.config.ai_model)
+                    from google import genai
+                    self._gemini_client = genai.Client(api_key=api_key)
                 except ImportError:
-                    print("[ContentGenerator] google-generativeai 패키지 없음")
+                    print("[ContentGenerator] google-genai 패키지 없음")
                     self._gemini_client = None
             else:
-                print("[ContentGenerator] GOOGLE_API_KEY 없음")
+                print("[ContentGenerator] GOOGLE_API_KEY 또는 GEMINI_API_KEY 없음")
                 self._gemini_client = None
         return self._gemini_client
 
@@ -95,7 +97,7 @@ class ContentGenerator:
             return self._generate_template(candidate)
 
     async def _generate_with_ai(self, candidate: SourcingCandidate) -> DetailPageContent:
-        """AI로 콘텐츠 생성
+        """AI로 콘텐츠 생성 (v4.1 - google.genai SDK)
 
         Args:
             candidate: 소싱 후보 상품
@@ -110,6 +112,8 @@ class ContentGenerator:
             return self._generate_template(candidate)
 
         try:
+            from google.genai import types
+
             user_prompt = f"""
 상품명: {candidate.title_kr}
 원본 제목: {candidate.source_title}
@@ -121,14 +125,22 @@ class ContentGenerator:
 위 정보를 바탕으로 상세페이지 콘텐츠를 PAS 프레임워크로 작성해주세요.
 """
 
-            response = client.generate_content(
-                self.SYSTEM_PROMPT + "\n\n" + user_prompt
+            config = types.GenerateContentConfig(
+                temperature=0.7,
+                system_instruction=self.SYSTEM_PROMPT,
+                response_mime_type="application/json"
             )
 
-            # JSON 파싱
+            response = client.models.generate_content(
+                model=self.config.ai_model,
+                contents=user_prompt,
+                config=config
+            )
+
+            # JSON 파싱 (response_mime_type="application/json" 덕분에 클린한 JSON)
             response_text = response.text.strip()
 
-            # JSON 블록 추출 (```json ... ``` 형식 처리)
+            # 혹시 모를 JSON 블록 추출 (```json ... ``` 형식 처리)
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0]
             elif "```" in response_text:

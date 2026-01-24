@@ -1,15 +1,16 @@
 """
-review_analyzer.py - 리뷰 분석 모듈 (Phase 5.2)
+review_analyzer.py - 리뷰 분석 모듈 (v4.0)
 
 경쟁사 리뷰 데이터를 분석하여:
 1. 치명적 결함 (소싱 포기 사유)
 2. 개선 요청 사항 (공장 협의용)
 3. 마케팅 소구점 (상세페이지 강조점)
 
-v3.5.2 업데이트:
-- Pydantic 모델 추가 (JSON 검증 강화)
-- Retry 로직 추가 (3회 재시도 + 지수 백오프)
-- 에러 유형별 Exception 클래스
+v4.0 업데이트 (Gemini CTO 권장):
+- google.generativeai → google.genai SDK 마이그레이션
+- Client-centric 패턴 적용
+- gemini-2.0-flash 모델 업그레이드
+- response_mime_type="application/json" 강제
 
 사용법:
     analyzer = ReviewAnalyzer(api_key="your_gemini_key")
@@ -186,12 +187,12 @@ REVIEW_ANALYSIS_PROMPT = """당신은 연 매출 100억 쇼핑몰의 수석 MD�
 
 
 class ReviewAnalyzer:
-    """리뷰 분석기 (Gemini API 사용) - v3.5.2
+    """리뷰 분석기 (Gemini API 사용) - v4.0
 
-    Phase 5.2 업데이트:
-    - Pydantic 모델로 JSON 검증 강화
-    - 3회 재시도 + 지수 백오프
-    - 에러 유형별 예외 처리
+    v4.0 업데이트:
+    - google.genai SDK (Client-centric)
+    - gemini-2.0-flash 모델
+    - JSON 출력 강제 (response_mime_type)
 
     Example:
         analyzer = ReviewAnalyzer(api_key="your_key")
@@ -201,6 +202,9 @@ class ReviewAnalyzer:
         print(result.marketing_hooks)  # ["..."]
     """
 
+    # 모델 설정
+    DEFAULT_MODEL = "gemini-2.0-flash"
+
     # 재시도 설정
     MAX_RETRIES = 3
     RETRY_DELAYS = [1, 2, 4]  # 지수 백오프: 1초, 2초, 4초
@@ -208,12 +212,20 @@ class ReviewAnalyzer:
     def __init__(self, api_key: Optional[str] = None):
         """
         Args:
-            api_key: Google API 키 (환경변수 GOOGLE_API_KEY 사용 가능)
+            api_key: Google API 키 (환경변수 GOOGLE_API_KEY 또는 GEMINI_API_KEY 사용 가능)
         """
         import os
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY 환경변수 또는 api_key 파라미터 필요")
+            raise ValueError("GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경변수 필요")
+        self.client = None
+
+    def _get_client(self):
+        """Lazy initialization of Gemini client"""
+        if self.client is None:
+            from google import genai
+            self.client = genai.Client(api_key=self.api_key)
+        return self.client
 
     def _classify_error(self, error: Exception) -> GeminiAPIError:
         """에러 유형 분류"""
@@ -238,10 +250,9 @@ class ReviewAnalyzer:
             ReviewAnalysisResult: 분석 결과
         """
         import asyncio
-        import google.generativeai as genai
+        from google.genai import types
 
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = self._get_client()
 
         category_focus = CATEGORY_CONTEXT.get(category, CATEGORY_CONTEXT["기타"])
         prompt = REVIEW_ANALYSIS_PROMPT.format(
@@ -250,10 +261,24 @@ class ReviewAnalyzer:
             category_focus=category_focus
         )
 
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+            response_mime_type="application/json"
+        )
+
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
-                response = await model.generate_content_async(prompt)
+                # 비동기 호출 (run_in_executor 사용)
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: client.models.generate_content(
+                        model=self.DEFAULT_MODEL,
+                        contents=prompt,
+                        config=config
+                    )
+                )
                 return self._parse_response_with_pydantic(response.text)
             except GeminiParseError as e:
                 # JSON 파싱 실패 시 재시도
@@ -288,10 +313,9 @@ class ReviewAnalyzer:
         Returns:
             ReviewAnalysisResult: 분석 결과
         """
-        import google.generativeai as genai
+        from google.genai import types
 
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = self._get_client()
 
         category_focus = CATEGORY_CONTEXT.get(category, CATEGORY_CONTEXT["기타"])
         prompt = REVIEW_ANALYSIS_PROMPT.format(
@@ -300,10 +324,19 @@ class ReviewAnalyzer:
             category_focus=category_focus
         )
 
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+            response_mime_type="application/json"
+        )
+
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
-                response = model.generate_content(prompt)
+                response = client.models.generate_content(
+                    model=self.DEFAULT_MODEL,
+                    contents=prompt,
+                    config=config
+                )
                 return self._parse_response_with_pydantic(response.text)
             except GeminiParseError as e:
                 # JSON 파싱 실패 시 재시도

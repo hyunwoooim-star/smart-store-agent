@@ -1,37 +1,35 @@
 """
-morning_tab.py - 모닝 브리핑 탭 (v4.0)
+morning_tab.py - 모닝 브리핑 탭 (v4.2)
 
 틴더 스타일 UI로 소싱 후보 승인/반려
 Gemini CTO 승인: "아침 5분 검토 시스템"
 
-기능:
-1. 밤새 수집된 후보 목록 표시
-2. 승인/반려 버튼
-3. 통계 대시보드
-4. 키워드 관리
+v4.2 UI Enhancement:
+- Toss 스타일 카드 + Naver 그린 컬러
+- 개선된 태그/배지 디자인
+- Plotly 도넛 차트 (상태별 분포)
 """
 
 import streamlit as st
-from datetime import datetime, timedelta
 from typing import Optional
 
 from src.crawler.repository import CandidateRepository
-from src.crawler.keyword_manager import KeywordManager
 from src.domain.crawler_models import SourcingCandidate, CandidateStatus, CrawlRiskLevel
+from src.ui.styles import COLORS, SHADOWS, RADIUS
 
 
 def render():
-    """모닝 브리핑 탭 렌더링"""
+    """모닝 브리핑 탭 렌더링 (v4.1 - 키워드 관리는 설정 탭으로 이동)"""
     st.header("모닝 브리핑")
     st.markdown("밤새 AI가 찾아온 상품 후보들입니다. 승인/반려를 결정해주세요.")
+    st.caption("💡 키워드 관리는 **설정 탭**에서 하세요.")
 
     # 저장소 초기화
     repo = CandidateRepository()
-    km = KeywordManager(repo)
 
-    # 탭 내부 구성
-    sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
-        "대기 중", "승인됨", "통계", "키워드 관리"
+    # 탭 내부 구성 (v4.1 - 키워드 관리는 설정 탭으로 이동)
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs([
+        "대기 중", "승인됨", "통계"
     ])
 
     with sub_tab1:
@@ -42,9 +40,6 @@ def render():
 
     with sub_tab3:
         _render_stats_tab(repo)
-
-    with sub_tab4:
-        _render_keyword_tab(km)
 
 
 def _render_pending_tab(repo: CandidateRepository):
@@ -74,7 +69,7 @@ def _render_pending_tab(repo: CandidateRepository):
         return
 
     # 일괄 처리 버튼
-    col1, col2, col3 = st.columns([1, 1, 2])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         if st.button("마진 35%+ 전체 승인"):
             approved_count = 0
@@ -95,6 +90,25 @@ def _render_pending_tab(repo: CandidateRepository):
             st.warning(f"{rejected_count}개 반려됨!")
             st.rerun()
 
+    with col3:
+        if st.button("📋 검토용 엑셀 다운로드"):
+            try:
+                from src.publisher.naver_excel_exporter import NaverExcelExporter
+                exporter = NaverExcelExporter()
+                file_path = exporter.export_for_review()
+                if file_path:
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            label="💾 저장",
+                            data=f.read(),
+                            file_name=file_path.split("/")[-1].split("\\")[-1],
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_review_excel"
+                        )
+                    st.success("검토용 엑셀 생성 완료!")
+            except Exception as e:
+                st.error(f"오류: {e}")
+
     st.divider()
 
     # 후보 카드 목록
@@ -114,9 +128,36 @@ def _render_approved_tab(repo: CandidateRepository):
 
     st.info(f"총 {len(candidates)}개 상품이 등록 대기 중입니다.")
 
-    # 전체 등록 버튼
-    if st.button("승인된 상품 전체 등록 (개발 중)", disabled=True):
-        st.warning("네이버 커머스 API 연동 후 사용 가능합니다.")
+    # 엑셀 다운로드 & 등록 버튼
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📥 네이버 대량등록용 엑셀 다운로드", type="primary"):
+            try:
+                from src.publisher.naver_excel_exporter import NaverExcelExporter
+
+                exporter = NaverExcelExporter()
+                file_path = exporter.export_approved()
+
+                if file_path:
+                    # 파일 읽어서 다운로드 제공
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            label="💾 엑셀 파일 저장",
+                            data=f.read(),
+                            file_name=file_path.split("/")[-1].split("\\")[-1],
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_excel"
+                        )
+                    st.success(f"✅ 엑셀 파일 생성 완료: {len(candidates)}개 상품")
+                else:
+                    st.warning("추출할 상품이 없습니다.")
+            except Exception as e:
+                st.error(f"엑셀 생성 오류: {e}")
+
+    with col2:
+        if st.button("🚀 네이버 자동 등록 (API 연동 후 활성화)", disabled=True):
+            st.warning("네이버 커머스 API 연동 후 사용 가능합니다.")
 
     st.divider()
 
@@ -129,13 +170,35 @@ def _render_candidate_card(
     repo: CandidateRepository,
     mode: str = "pending"
 ):
-    """상품 카드 렌더링 (틴더 스타일)
+    """상품 카드 렌더링 (v4.2 Toss 스타일)
 
     Args:
         candidate: 소싱 후보
         repo: 저장소
         mode: pending/approved
     """
+    # 마진율에 따른 카드 테두리 색상
+    if candidate.estimated_margin_rate >= 0.40:
+        border_color = COLORS["success"]
+    elif candidate.estimated_margin_rate >= 0.35:
+        border_color = COLORS["primary"]
+    elif candidate.estimated_margin_rate >= 0.25:
+        border_color = COLORS["warning"]
+    else:
+        border_color = COLORS["danger"]
+
+    # Toss 스타일 카드 컨테이너
+    st.markdown(f"""
+    <div style="
+        background: {COLORS['card_bg']};
+        border-radius: {RADIUS['md']};
+        border-left: 4px solid {border_color};
+        padding: 4px 0;
+        margin: 8px 0;
+        box-shadow: {SHADOWS['md']};
+    "></div>
+    """, unsafe_allow_html=True)
+
     with st.container():
         col1, col2 = st.columns([1, 3])
 
@@ -166,7 +229,7 @@ def _render_candidate_card(
 
             if tags:
                 tag_html = " ".join([
-                    f'<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:12px;font-size:12px;margin-right:4px;">{tag}</span>'
+                    f'<span style="background:{COLORS["primary_light"]};color:{COLORS["primary_dark"]};padding:4px 10px;border-radius:12px;font-size:12px;margin-right:6px;font-weight:500;">{tag}</span>'
                     for tag in tags
                 ])
                 st.markdown(tag_html, unsafe_allow_html=True)
@@ -245,7 +308,7 @@ def _render_candidate_card(
 
 
 def _render_stats_tab(repo: CandidateRepository):
-    """통계 대시보드"""
+    """통계 대시보드 (v4.2 Plotly)"""
     st.subheader("소싱 통계")
 
     stats = repo.get_stats()
@@ -259,15 +322,68 @@ def _render_stats_tab(repo: CandidateRepository):
 
     st.divider()
 
-    # 상태별 분포 (간단한 바 차트)
+    # 상태별 분포 (Plotly 도넛 차트)
     st.write("**상태별 분포**")
-    status_data = {
-        "대기 중": stats['pending'],
-        "승인됨": stats['approved'],
-        "등록 완료": stats['uploaded'],
-        "반려됨": stats['rejected'],
-    }
-    st.bar_chart(status_data)
+
+    try:
+        import plotly.graph_objects as go
+
+        labels = ["대기 중", "승인됨", "등록 완료", "반려됨"]
+        values = [stats['pending'], stats['approved'], stats['uploaded'], stats['rejected']]
+
+        # 값이 모두 0인지 확인
+        if sum(values) > 0:
+            fig = go.Figure(data=[go.Pie(
+                labels=labels,
+                values=values,
+                hole=0.5,
+                marker=dict(colors=[
+                    COLORS['warning'],   # 대기 중 - 노랑
+                    COLORS['primary'],   # 승인됨 - 그린
+                    COLORS['chart_3'],   # 등록 완료 - 연그린
+                    COLORS['danger'],    # 반려됨 - 빨강
+                ]),
+                textinfo="label+value",
+                textfont=dict(size=12, family="Pretendard"),
+                hovertemplate="<b>%{label}</b><br>%{value}개<br>%{percent}<extra></extra>",
+            )])
+
+            # 중앙에 총 개수 표시
+            fig.add_annotation(
+                text=f"<b>{stats['total']}</b><br><span style='font-size:11px'>전체</span>",
+                x=0.5, y=0.5,
+                font=dict(size=18, family="Pretendard", color=COLORS['text_main']),
+                showarrow=False,
+            )
+
+            fig.update_layout(
+                height=300,
+                margin=dict(t=20, b=20, l=20, r=20),
+                paper_bgcolor="rgba(0,0,0,0)",
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=-0.15,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=11),
+                ),
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("데이터가 없습니다.")
+
+    except ImportError:
+        # Plotly 없을 경우 기본 차트
+        status_data = {
+            "대기 중": stats['pending'],
+            "승인됨": stats['approved'],
+            "등록 완료": stats['uploaded'],
+            "반려됨": stats['rejected'],
+        }
+        st.bar_chart(status_data)
 
     st.divider()
 
@@ -286,85 +402,6 @@ def _render_stats_tab(repo: CandidateRepository):
             repo.clear_all()
             st.warning("모든 데이터 삭제됨!")
             st.rerun()
-
-
-def _render_keyword_tab(km: KeywordManager):
-    """키워드 관리"""
-    st.subheader("소싱 키워드 관리")
-
-    # 키워드 추가 폼
-    with st.form("add_keyword_form"):
-        st.write("**새 키워드 추가**")
-        col1, col2, col3 = st.columns([2, 1, 1])
-
-        with col1:
-            new_keyword = st.text_input("키워드", placeholder="데스크 정리함")
-
-        with col2:
-            new_category = st.selectbox("카테고리", [
-                "홈인테리어", "사무용품", "생활용품", "자동차", "기타"
-            ])
-
-        with col3:
-            new_priority = st.number_input("우선순위", min_value=1, max_value=10, value=5)
-
-        if st.form_submit_button("추가"):
-            if new_keyword:
-                km.add_keyword(new_keyword, new_category, new_priority)
-                st.success(f"'{new_keyword}' 추가됨!")
-                st.rerun()
-            else:
-                st.error("키워드를 입력해주세요.")
-
-    st.divider()
-
-    # 기본 키워드 시드
-    if st.button("기본 키워드 추가 (홈인테리어/수납)"):
-        keywords = km.seed_default_keywords()
-        st.success(f"{len(keywords)}개 키워드 추가됨!")
-        st.rerun()
-
-    st.divider()
-
-    # 현재 키워드 목록
-    st.write("**현재 키워드 목록**")
-    keywords = km.repository.get_keywords(active_only=False)
-
-    if not keywords:
-        st.info("등록된 키워드가 없습니다.")
-        return
-
-    for kw in keywords:
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-
-        with col1:
-            status = "🟢" if kw.is_active else "⚪"
-            st.write(f"{status} **{kw.keyword}** ({kw.category})")
-
-        with col2:
-            st.write(f"우선순위: {kw.priority}")
-
-        with col3:
-            if kw.last_crawled_at:
-                time_diff = datetime.now() - kw.last_crawled_at
-                if time_diff < timedelta(hours=1):
-                    st.write("방금 전")
-                elif time_diff < timedelta(hours=24):
-                    st.write(f"{time_diff.seconds // 3600}시간 전")
-                else:
-                    st.write(f"{time_diff.days}일 전")
-            else:
-                st.write("미크롤링")
-
-        with col4:
-            if kw.is_active:
-                if st.button("비활성화", key=f"deactivate_{kw.id}"):
-                    km.deactivate_keyword(kw.id)
-                    st.rerun()
-            else:
-                if st.button("활성화", key=f"activate_{kw.id}"):
-                    km.activate_keyword(kw.id)
-                    st.rerun()
 
 
 def _generate_sample_candidates(repo: CandidateRepository):

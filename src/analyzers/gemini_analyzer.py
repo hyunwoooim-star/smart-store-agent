@@ -1,5 +1,5 @@
 """
-gemini_analyzer.py - Gemini AI 분석 모듈 (v3.2)
+gemini_analyzer.py - Gemini AI 분석 모듈 (v4.0)
 
 핵심 기능:
 1. 불만 패턴 TOP 5 분석
@@ -7,10 +7,11 @@ gemini_analyzer.py - Gemini AI 분석 모듈 (v3.2)
 3. 개선 카피라이팅 생성
 4. 스펙 체크리스트 추출
 
-v3.2 변경사항 (Gemini 피드백 반영):
-- 마스터 시스템 프롬프트 추가 (베테랑 MD 페르소나)
-- 비판적 사고 + 보수적 마진 + 근거 중심 원칙 적용
-- JSON 출력 강제 규칙 강화
+v4.0 변경사항 (Gemini CTO 권장):
+- google.generativeai → google.genai SDK 마이그레이션
+- Client-centric 패턴 적용
+- gemini-2.0-flash 모델 업그레이드
+- response_mime_type="application/json" 강제
 """
 
 import os
@@ -19,13 +20,15 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 from enum import Enum
 
-# Google Generative AI (설치 필요: pip install google-generativeai)
+# Google Gen AI SDK (설치 필요: pip install google-genai)
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
     genai = None
+    types = None
 
 
 class AnalysisType(Enum):
@@ -100,10 +103,10 @@ class GeminiAnalysisResult:
 
 
 class GeminiAnalyzer:
-    """Gemini AI 분석기 (v3.2 - 마스터 프롬프트 적용)"""
+    """Gemini AI 분석기 (v4.0 - google.genai SDK)"""
 
     # Gemini 모델 설정
-    DEFAULT_MODEL = "gemini-1.5-flash"
+    DEFAULT_MODEL = "gemini-2.0-flash"
 
     # =========================================================
     # 마스터 시스템 프롬프트 (Gemini 피드백 반영)
@@ -270,11 +273,11 @@ JSON만 출력하세요.
             api_key: Gemini API 키 (없으면 환경변수에서 읽음)
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
-        self.model = None
+        self.client = None
         self._initialized = False
 
     def initialize(self) -> bool:
-        """API 초기화"""
+        """API 초기화 (v4.0 - Client-centric)"""
         if not GENAI_AVAILABLE:
             return False
 
@@ -282,16 +285,40 @@ JSON만 출력하세요.
             return False
 
         try:
-            genai.configure(api_key=self.api_key)
-            # 시스템 프롬프트 적용 (v3.2)
-            self.model = genai.GenerativeModel(
-                self.DEFAULT_MODEL,
-                system_instruction=self.SYSTEM_PROMPT
-            )
+            # 새 SDK: Client 생성
+            self.client = genai.Client(api_key=self.api_key)
             self._initialized = True
             return True
         except Exception:
             return False
+
+    def _generate_content(self, prompt: str, json_output: bool = True) -> str:
+        """
+        공통 API 호출 메서드 (v4.0)
+
+        Args:
+            prompt: 프롬프트 문자열
+            json_output: JSON 출력 강제 여부
+
+        Returns:
+            응답 텍스트
+        """
+        config = types.GenerateContentConfig(
+            temperature=0.7,
+            system_instruction=self.SYSTEM_PROMPT,
+        )
+
+        # JSON 출력 강제 (v4.0 신기능)
+        if json_output:
+            config.response_mime_type = "application/json"
+
+        response = self.client.models.generate_content(
+            model=self.DEFAULT_MODEL,
+            contents=prompt,
+            config=config
+        )
+
+        return response.text
 
     def _parse_json_response(self, response_text: str) -> Dict[str, Any]:
         """JSON 응답 파싱"""
@@ -322,10 +349,10 @@ JSON만 출력하세요.
 
         try:
             prompt = self.PROMPTS[AnalysisType.COMPLAINT_PATTERN].format(reviews=reviews_text)
-            response = self.model.generate_content(prompt)
-            result.raw_response = response.text
+            response_text = self._generate_content(prompt)
+            result.raw_response = response_text
 
-            parsed = self._parse_json_response(response.text)
+            parsed = self._parse_json_response(response_text)
 
             if "patterns" in parsed:
                 for p in parsed["patterns"]:
@@ -362,10 +389,10 @@ JSON만 출력하세요.
 
         try:
             prompt = self.PROMPTS[AnalysisType.SEMANTIC_GAP].format(reviews=reviews_text)
-            response = self.model.generate_content(prompt)
-            result.raw_response = response.text
+            response_text = self._generate_content(prompt)
+            result.raw_response = response_text
 
-            parsed = self._parse_json_response(response.text)
+            parsed = self._parse_json_response(response_text)
 
             if "gaps" in parsed:
                 for g in parsed["gaps"]:
@@ -402,10 +429,10 @@ JSON만 출력하세요.
                 complaints=complaints,
                 product_info=product_info
             )
-            response = self.model.generate_content(prompt)
-            result.raw_response = response.text
+            response_text = self._generate_content(prompt)
+            result.raw_response = response_text
 
-            parsed = self._parse_json_response(response.text)
+            parsed = self._parse_json_response(response_text)
 
             if "suggestions" in parsed:
                 for s in parsed["suggestions"]:
@@ -441,10 +468,10 @@ JSON만 출력하세요.
                 complaints=complaints,
                 category=category
             )
-            response = self.model.generate_content(prompt)
-            result.raw_response = response.text
+            response_text = self._generate_content(prompt)
+            result.raw_response = response_text
 
-            parsed = self._parse_json_response(response.text)
+            parsed = self._parse_json_response(response_text)
 
             if "checklist" in parsed:
                 for c in parsed["checklist"]:
@@ -506,8 +533,8 @@ JSON만 출력하세요.
 """
 
         try:
-            response = self.model.generate_content(prompt)
-            return self._parse_json_response(response.text)
+            response_text = self._generate_content(prompt)
+            return self._parse_json_response(response_text)
         except Exception as e:
             print(f"❌ [Gemini] API Error: {str(e)}")
             return self._get_fallback_data()
@@ -537,10 +564,10 @@ JSON만 출력하세요.
                 reviews=reviews_text,
                 product_info=product_info
             )
-            response = self.model.generate_content(prompt)
-            result.raw_response = response.text
+            response_text = self._generate_content(prompt)
+            result.raw_response = response_text
 
-            parsed = self._parse_json_response(response.text)
+            parsed = self._parse_json_response(response_text)
 
             # 불만 패턴
             if "complaint_patterns" in parsed:
@@ -645,7 +672,7 @@ class MockGeminiAnalyzer(GeminiAnalyzer):
 # --- 테스트 실행 코드 ---
 if __name__ == "__main__":
     print("="*60)
-    print("🤖 Gemini 분석기 테스트 (v3.1)")
+    print("🤖 Gemini 분석기 테스트 (v4.0 - google.genai SDK)")
     print("="*60)
 
     # Mock Analyzer로 테스트 (API 키 불필요)

@@ -5,7 +5,88 @@
     "category": "테스트",
     "is_active": true,
     "priority": 1,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-24T09:24:11.463332",
     "created_at": "2026-01-24T01:46:52.936712"
+  },
+  {
+    "id": "8666ec87-6653-4f4f-aa94-951a1a22d6a9",
+    "keyword": "데스크 정리함",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 1,
+    "last_crawled_at": "2026-01-24T09:29:05.034834",
+    "created_at": "2026-01-24T09:21:31.989456"
+  },
+  {
+    "id": "5f667bca-f4e9-4f19-8a2f-c92de4d8cf12",
+    "keyword": "모니터 받침대 서랍",
+    "category": "사무용품",
+    "is_active": true,
+    "priority": 2,
+    "last_crawled_at": "2026-01-24T09:33:21.145736",
+    "created_at": "2026-01-24T09:21:31.990623"
+  },
+  {
+    "id": "af3b59b5-21f3-437e-b4d9-1b92e6fe8861",
+    "keyword": "틈새 수납장",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 2,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.002761"
+  },
+  {
+    "id": "9e08a1ad-b4f1-462a-9877-4aedc5baf4a0",
+    "keyword": "케이블 정리함",
+    "category": "사무용품",
+    "is_active": true,
+    "priority": 3,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.012714"
+  },
+  {
+    "id": "623201b5-a1d7-44cb-9af4-32a7d9ccd0e0",
+    "keyword": "화장품 정리함",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 3,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.023138"
+  },
+  {
+    "id": "6ed80ff3-546e-455c-9e1b-f680041f6aeb",
+    "keyword": "신발 정리대",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 4,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.033696"
+  },
+  {
+    "id": "dc7501da-0d3c-440b-8b90-d51fb9c226d9",
+    "keyword": "옷장 정리함",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 4,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.044577"
+  },
+  {
+    "id": "114e0acf-65a0-43af-89b7-a4c197d58c82",
+    "keyword": "주방 수납장",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 5,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:21:32.055605"
+  },
+  {
+    "id": "ba3d725d-bb6f-4a0a-9196-3b31c43369b3",
+    "keyword": "데스크",
+    "category": "홈인테리어",
+    "is_active": true,
+    "priority": 5,
+    "last_crawled_at": null,
+    "created_at": "2026-01-24T09:42:09.053253"
   }
 ]

@@ -139,6 +139,10 @@ class CandidateRepository:
         """승인된 후보 목록"""
         return self.get_candidates(status=CandidateStatus.APPROVED)
 
+    def get_candidates_by_status(self, status: CandidateStatus) -> List[SourcingCandidate]:
+        """상태별 후보 목록 조회 (엑셀 추출용)"""
+        return self.get_candidates(status=status)
+
     def add_candidate(self, candidate: SourcingCandidate) -> SourcingCandidate:
         """후보 추가"""
         data = self._load_json(self.candidates_file)

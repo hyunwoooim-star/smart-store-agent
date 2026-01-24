@@ -1,0 +1,12 @@
+# Smart Store Agent - Streamlit Theme (v4.2)
+# Toss UX + Naver Brand Color
+
+[theme]
+primaryColor = "#03C75A"              # Naver Green
+backgroundColor = "#F5F6F8"           # Toss Gray Background
+secondaryBackgroundColor = "#FFFFFF"  # White Card
+textColor = "#191F28"                 # Toss Black
+font = "sans serif"
+
+[server]
+headless = true
