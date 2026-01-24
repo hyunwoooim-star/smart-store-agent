@@ -513,62 +513,139 @@ class TwoStageCrawler:
             return self._mock_1688_results(keyword)
 
     async def _search_1688_apify(self, keyword: str, api_token: str) -> List[Dict[str, Any]]:
-        """Apify 1688 검색"""
+        """Apify 1688 검색 - 여러 Actor 시도"""
+
+        # Actor 목록 (우선순위)
+        actors = [
+            {
+                "id": "styleindexamerica/cn-1688-scraper",
+                "input": {
+                    "keyword": keyword,
+                    "maxResults": 30,
+                    "proxyConfig": {"useApifyProxy": True}
+                }
+            },
+            {
+                "id": "ecomscrape/1688-product-search-scraper",
+                "input": {
+                    "searchTerms": [keyword],
+                    "maxItemsPerSearch": 30
+                }
+            },
+            {
+                "id": "songd/1688-search-scraper",
+                "input": {
+                    "searches": [{"keyword": keyword}],
+                    "maxPagesPerSearch": 1,
+                    "proxySettings": {"useApifyProxy": True}
+                }
+            },
+        ]
+
         try:
             from apify_client import ApifyClient
 
             client = ApifyClient(api_token)
 
-            run = client.actor("songd/1688-search-scraper").call(
-                run_input={
-                    "searches": [{"keyword": keyword}],
-                    "maxPagesPerSearch": 1,
-                    "proxySettings": {"useApifyProxy": True}
-                },
-                timeout_secs=300,
-                memory_mbytes=512
-            )
+            # 각 Actor 순서대로 시도
+            for actor_info in actors:
+                actor_id = actor_info["id"]
+                actor_input = actor_info["input"]
 
-            results = client.dataset(run["defaultDatasetId"]).list_items().items
+                print(f"  🔄 Actor 시도: {actor_id}")
 
-            # 정규화
-            normalized = []
-            for item in results:
-                price_raw = item.get("price", 0)
-                if isinstance(price_raw, str):
-                    price_raw = price_raw.replace("¥", "").replace(",", "").strip()
-                    try:
-                        price = float(price_raw.split("-")[0])
-                    except:
-                        price = 0
-                else:
-                    price = float(price_raw or 0)
+                try:
+                    run = client.actor(actor_id).call(
+                        run_input=actor_input,
+                        timeout_secs=300,
+                        memory_mbytes=512
+                    )
 
-                sales_raw = item.get("sales", item.get("sold", 0))
-                if isinstance(sales_raw, str):
-                    sales_raw = sales_raw.replace("+", "").replace("件", "").replace(",", "")
-                    try:
-                        sales = int(sales_raw)
-                    except:
-                        sales = 0
-                else:
-                    sales = int(sales_raw or 0)
+                    results = client.dataset(run["defaultDatasetId"]).list_items().items
 
-                normalized.append({
-                    "url": item.get("url", item.get("productUrl", "")),
-                    "title": item.get("title", item.get("name", "")),
-                    "price": price,
-                    "sales_count": sales,
-                    "shop_name": item.get("shopName", item.get("seller", "")),
-                    "shop_rating": float(item.get("shopRating", item.get("rating", 0)) or 0),
-                    "images": item.get("images", [item.get("image", "")]),
-                })
+                    if results:
+                        print(f"  ✅ Actor 성공: {actor_id} ({len(results)}개)")
+                        return self._normalize_apify_results(results)
+                    else:
+                        print(f"  ⚠️ 결과 없음: {actor_id}")
+                        continue
 
-            return normalized
+                except Exception as actor_error:
+                    error_msg = str(actor_error)
+                    if "rent" in error_msg.lower() or "trial" in error_msg.lower() or "paid" in error_msg.lower():
+                        print(f"  💰 유료 Actor: {actor_id}")
+                    else:
+                        print(f"  ⚠️ Actor 오류: {actor_id} - {error_msg[:50]}")
+                    continue
+
+            # 모든 Actor 실패시 Mock
+            print(f"  ⚠️ 모든 Apify Actor 실패 - Mock 모드 사용")
+            return self._mock_1688_results(keyword)
 
         except Exception as e:
-            print(f"  ⚠️ Apify 오류: {e}")
+            print(f"  ⚠️ Apify 초기화 오류: {e}")
             return self._mock_1688_results(keyword)
+
+    def _normalize_apify_results(self, results: List[Dict]) -> List[Dict[str, Any]]:
+        """Apify 결과 정규화 (다양한 Actor 형식 대응)"""
+        normalized = []
+
+        for item in results:
+            # 가격 파싱
+            price_raw = item.get("price", item.get("priceRange", item.get("unitPrice", 0)))
+            if isinstance(price_raw, str):
+                price_raw = price_raw.replace("¥", "").replace(",", "").strip()
+                try:
+                    price = float(price_raw.split("-")[0].split("~")[0])
+                except:
+                    price = 0
+            else:
+                price = float(price_raw or 0)
+
+            # 판매량 파싱
+            sales_raw = item.get("sales", item.get("sold", item.get("salesCount", item.get("monthSales", 0))))
+            if isinstance(sales_raw, str):
+                sales_raw = sales_raw.replace("+", "").replace("件", "").replace(",", "").replace("万", "0000")
+                try:
+                    sales = int(float(sales_raw))
+                except:
+                    sales = 0
+            else:
+                sales = int(sales_raw or 0)
+
+            # URL 파싱
+            url = item.get("url", item.get("productUrl", item.get("detailUrl", item.get("link", ""))))
+
+            # 제목 파싱
+            title = item.get("title", item.get("name", item.get("productName", "")))
+
+            # 상점 정보
+            shop_name = item.get("shopName", item.get("seller", item.get("supplierName", "")))
+            shop_rating = item.get("shopRating", item.get("rating", item.get("supplierRating", 0)))
+            if isinstance(shop_rating, str):
+                try:
+                    shop_rating = float(shop_rating)
+                except:
+                    shop_rating = 0
+
+            # 이미지
+            images = item.get("images", item.get("imageUrls", []))
+            if not images:
+                single_img = item.get("image", item.get("imageUrl", item.get("mainImage", "")))
+                if single_img:
+                    images = [single_img]
+
+            normalized.append({
+                "url": url,
+                "title": title,
+                "price": price,
+                "sales_count": sales,
+                "shop_name": shop_name,
+                "shop_rating": float(shop_rating or 0),
+                "images": images,
+            })
+
+        return normalized
 
     def _mock_1688_results(self, keyword: str) -> List[Dict[str, Any]]:
         """Mock 검색 결과"""
