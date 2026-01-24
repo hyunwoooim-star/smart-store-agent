@@ -41,6 +41,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install google-genai apify-client  # v4.2 SDK 추가
 
       - name: Run Night Crawler
         env:
@@ -61,7 +62,12 @@ jobs:
           CRAWLER_MOCK_MODE: ${{ github.event.inputs.mock_mode || 'true' }}
         run: |
           echo "Night Crawler 시작: $(date)"
-          python -m src.crawler.night_crawler
+          python -c "
+          import asyncio
+          from src.crawler.two_stage_crawler import TwoStageCrawler
+          crawler = TwoStageCrawler()
+          asyncio.run(crawler.run_full_pipeline())
+          "
           echo "Night Crawler 완료: $(date)"
 
       - name: Send Slack Notification
