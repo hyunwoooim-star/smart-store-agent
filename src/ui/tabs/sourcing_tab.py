@@ -97,6 +97,12 @@ def render():
             horizontal=True
         )
 
+    # ========== 상세 정보 직접 입력 (선택) ==========
+    with st.expander("📋 상세 정보 직접 입력 (선택)", expanded=False):
+        manual_data = _render_manual_input_section()
+        if manual_data:
+            st.session_state.manual_input = manual_data
+
     st.divider()
 
     # ========== 분석 시작 버튼 ==========
@@ -360,19 +366,102 @@ def _render_results(result: Dict[str, Any], settings: Dict[str, Any]):
             st.rerun()
 
 
-def _render_manual_input_section():
-    """수동 입력 섹션 (1688 스크래핑 대체)"""
-    with st.expander("📋 상세 정보 직접 입력 (선택)", expanded=False):
-        st.caption("1688 상품 페이지에서 복사한 정보를 입력하세요.")
+def _render_manual_input_section() -> Optional[Dict]:
+    """수동 입력 섹션 (1688/알리익스프레스 대체) - v4.3"""
+    st.caption("1688 또는 알리익스프레스 상품 페이지에서 복사한 정보를 입력하세요.")
 
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            st.text_input("1688 상품 URL", placeholder="https://detail.1688.com/offer/xxx.html")
-            st.text_input("중국어 상품명", placeholder="桌面收纳盒三层抽屉式")
-            st.text_input("공장명", placeholder="优质工厂")
+    with col1:
+        source_url = st.text_input(
+            "상품 URL",
+            placeholder="https://detail.1688.com/... 또는 https://aliexpress.com/...",
+            key="manual_source_url"
+        )
 
-        with col2:
-            st.text_input("이미지 URL", placeholder="https://cbu01.alicdn.com/img/...")
-            st.number_input("판매량", min_value=0, value=100)
-            st.number_input("공장 평점", min_value=0.0, max_value=5.0, value=4.8, step=0.1)
+        # URL 플랫폼 자동 감지
+        platform = None
+        if source_url:
+            if "1688.com" in source_url:
+                st.caption("🇨🇳 1688 상품 감지됨")
+                platform = "1688"
+            elif "aliexpress" in source_url.lower():
+                st.caption("🛒 알리익스프레스 상품 감지됨")
+                platform = "aliexpress"
+            elif "taobao" in source_url.lower():
+                st.caption("🛍️ 타오바오 상품 감지됨")
+                platform = "taobao"
+
+        chinese_name = st.text_input(
+            "중국어 상품명",
+            placeholder="桌面收纳盒三层抽屉式",
+            key="manual_chinese_name"
+        )
+        factory_name = st.text_input(
+            "공장/판매자명",
+            placeholder="优质工厂",
+            key="manual_factory"
+        )
+
+    with col2:
+        image_url = st.text_input(
+            "이미지 URL",
+            placeholder="https://cbu01.alicdn.com/img/...",
+            key="manual_image_url"
+        )
+
+        # 이미지 URL 프리뷰 (try-except로 안전하게)
+        if image_url:
+            try:
+                st.image(image_url, width=150)
+            except Exception:
+                st.warning("이미지 로드 실패 - URL을 확인하세요")
+
+        sales_count = st.number_input(
+            "판매량",
+            min_value=0,
+            value=100,
+            key="manual_sales"
+        )
+        shop_rating = st.number_input(
+            "판매자 평점",
+            min_value=0.0,
+            max_value=5.0,
+            value=4.8,
+            step=0.1,
+            key="manual_rating"
+        )
+
+    # ========== 이미지 파일 업로드 ==========
+    st.markdown("---")
+    st.markdown("**📷 이미지 업로드** (선택)")
+
+    uploaded_images = st.file_uploader(
+        "상품 이미지 (최대 5장)",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="manual_images",
+        help="1688/알리익스프레스에서 저장한 상품 이미지"
+    )
+
+    if uploaded_images:
+        img_cols = st.columns(min(len(uploaded_images), 5))
+        for i, img in enumerate(uploaded_images[:5]):
+            try:
+                img_cols[i].image(img, use_container_width=True)
+            except Exception:
+                img_cols[i].warning("로드 실패")
+
+    # 데이터 반환
+    if source_url or chinese_name or uploaded_images:
+        return {
+            "source_url": source_url,
+            "platform": platform,
+            "chinese_name": chinese_name,
+            "factory_name": factory_name,
+            "image_url": image_url,
+            "sales_count": sales_count,
+            "shop_rating": shop_rating,
+            "uploaded_images": uploaded_images,
+        }
+    return None

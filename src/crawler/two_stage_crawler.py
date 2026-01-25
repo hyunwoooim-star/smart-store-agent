@@ -62,6 +62,9 @@ class CrawlStage(Enum):
 @dataclass
 class DiscoveryConfig:
     """Discovery Stage 설정"""
+    # 플랫폼 선택 (v4.3)
+    platform: str = "aliexpress"        # "1688" | "aliexpress" | "both"
+
     # 가격대 필터 (위안)
     min_price_cny: float = 5.0          # 최소 ¥5 (너무 싼 건 품질 의심)
     max_price_cny: float = 200.0        # 최대 ¥200 (고가는 MOQ 높음)
@@ -238,11 +241,24 @@ class TwoStageCrawler:
         Returns:
             int: 발굴된 상품 수
         """
-        # 1. 1688 검색
-        print(f"  🔎 1688 검색 중...")
-        search_results = await self._search_1688(keyword.keyword)
+        # 1. 플랫폼별 검색 (v4.3)
+        platform = self.discovery_config.platform
+        search_results = []
+
+        if platform in ("aliexpress", "both"):
+            print(f"  🔎 알리익스프레스 검색 중...")
+            ali_results = await self._search_aliexpress(keyword.keyword)
+            search_results.extend(ali_results)
+            print(f"  📦 AliExpress: {len(ali_results)}개")
+
+        if platform in ("1688", "both"):
+            print(f"  🔎 1688 검색 중...")
+            _1688_results = await self._search_1688(keyword.keyword)
+            search_results.extend(_1688_results)
+            print(f"  📦 1688: {len(_1688_results)}개")
+
         self.stats.products_found += len(search_results)
-        print(f"  📦 {len(search_results)}개 발견")
+        print(f"  📦 총 {len(search_results)}개 발견")
 
         if not search_results:
             return 0
@@ -673,6 +689,177 @@ class TwoStageCrawler:
                 "shop_name": f"优质工厂{i+1}",
                 "shop_rating": p["shop_rating"],
                 "images": [f"https://cbu01.alicdn.com/img/mock_{i}.jpg"],
+            })
+
+        return results
+
+    # ================================================================
+    # 알리익스프레스 검색 (v4.3 - 무료 Actor)
+    # ================================================================
+
+    async def _search_aliexpress(self, keyword: str) -> List[Dict[str, Any]]:
+        """알리익스프레스 검색 (무료 Actor 우선)"""
+        apify_token = os.getenv("APIFY_API_TOKEN")
+
+        if not apify_token:
+            print("  ⚠️ APIFY_API_TOKEN 없음 - Mock 모드")
+            return self._mock_aliexpress_results(keyword)
+
+        # 무료 Actor 목록 (우선순위)
+        actors = [
+            {
+                "id": "logical_scrapers/aliexpress-scraper",
+                "input": {
+                    "search": keyword,
+                    "maxItems": 30,
+                }
+            },
+            {
+                "id": "epctex/aliexpress-scraper",
+                "input": {
+                    "startUrls": [{"url": f"https://www.aliexpress.com/wholesale?SearchText={keyword}"}],
+                    "maxItems": 30,
+                }
+            },
+        ]
+
+        try:
+            from apify_client import ApifyClient
+            client = ApifyClient(apify_token)
+
+            for actor_info in actors:
+                actor_id = actor_info["id"]
+                print(f"  🔄 AliExpress Actor: {actor_id}")
+
+                try:
+                    run = client.actor(actor_id).call(
+                        run_input=actor_info["input"],
+                        timeout_secs=300,
+                        memory_mbytes=512
+                    )
+
+                    results = client.dataset(run["defaultDatasetId"]).list_items().items
+
+                    if results:
+                        print(f"  ✅ 성공: {len(results)}개")
+                        return self._normalize_aliexpress_results(results)
+                    else:
+                        print(f"  ⚠️ 결과 없음: {actor_id}")
+                        continue
+
+                except Exception as actor_error:
+                    error_msg = str(actor_error)
+                    if "rent" in error_msg.lower() or "trial" in error_msg.lower() or "paid" in error_msg.lower():
+                        print(f"  💰 유료 Actor: {actor_id}")
+                    else:
+                        print(f"  ⚠️ 오류: {error_msg[:50]}")
+                    continue
+
+            print(f"  ⚠️ 모든 AliExpress Actor 실패 - Mock 모드")
+            return self._mock_aliexpress_results(keyword)
+
+        except Exception as e:
+            print(f"  ⚠️ Apify 초기화 오류: {e}")
+            return self._mock_aliexpress_results(keyword)
+
+    def _normalize_aliexpress_results(self, results: List[Dict]) -> List[Dict[str, Any]]:
+        """알리익스프레스 결과 정규화"""
+        normalized = []
+
+        for item in results:
+            # 가격 파싱 (USD → CNY 변환, 1 USD ≈ 7.2 CNY)
+            price_usd = item.get("price", item.get("salePrice", item.get("currentPrice", 0)))
+            if isinstance(price_usd, str):
+                price_usd = price_usd.replace("$", "").replace("US", "").replace(",", "").strip()
+                try:
+                    # 가격 범위 처리 ($5.99-$12.99 → 5.99)
+                    price_usd = float(price_usd.split("-")[0].split("~")[0])
+                except:
+                    price_usd = 0
+            else:
+                price_usd = float(price_usd or 0)
+
+            price_cny = price_usd * 7.2  # CNY 변환
+
+            # 판매량 파싱
+            orders = item.get("orders", item.get("sold", item.get("salesCount", "0")))
+            if isinstance(orders, str):
+                orders = orders.replace("+", "").replace("sold", "").replace("orders", "").replace(",", "").strip()
+                # "1.2k" → 1200
+                if "k" in orders.lower():
+                    try:
+                        orders = int(float(orders.lower().replace("k", "")) * 1000)
+                    except:
+                        orders = 0
+                else:
+                    try:
+                        orders = int(float(orders))
+                    except:
+                        orders = 0
+            else:
+                orders = int(orders or 0)
+
+            # URL 파싱
+            url = item.get("url", item.get("productUrl", item.get("link", "")))
+
+            # 제목 파싱
+            title = item.get("title", item.get("name", item.get("productName", "")))
+
+            # 상점 정보
+            shop_name = item.get("storeName", item.get("seller", item.get("shopName", "")))
+            shop_rating = item.get("rating", item.get("storeRating", item.get("shopRating", 0)))
+            if isinstance(shop_rating, str):
+                try:
+                    shop_rating = float(shop_rating)
+                except:
+                    shop_rating = 0
+
+            # 이미지
+            images = item.get("images", item.get("imageUrls", []))
+            if not images:
+                single_img = item.get("imageUrl", item.get("image", item.get("mainImage", "")))
+                if single_img:
+                    images = [single_img]
+
+            normalized.append({
+                "url": url,
+                "title": title,
+                "price": price_cny,
+                "price_usd": price_usd,
+                "sales_count": orders,
+                "shop_name": shop_name,
+                "shop_rating": float(shop_rating or 0),
+                "images": images,
+                "platform": "aliexpress",
+            })
+
+        return normalized
+
+    def _mock_aliexpress_results(self, keyword: str) -> List[Dict[str, Any]]:
+        """알리익스프레스 Mock 결과"""
+        base_products = [
+            {"title": f"{keyword} Premium Quality", "price_usd": 5.99, "orders": 1250},
+            {"title": f"{keyword} Best Seller 2024", "price_usd": 8.99, "orders": 2340},
+            {"title": f"{keyword} Hot Sale Free Shipping", "price_usd": 12.99, "orders": 856},
+            {"title": f"{keyword} New Arrival", "price_usd": 15.99, "orders": 567},
+            {"title": f"{keyword} Top Rated Choice", "price_usd": 3.99, "orders": 3450},
+            {"title": f"{keyword} Factory Direct", "price_usd": 6.50, "orders": 1890},
+            {"title": f"{keyword} Wholesale Price", "price_usd": 4.25, "orders": 4120},
+            {"title": f"{keyword} Limited Edition", "price_usd": 18.99, "orders": 234},
+        ]
+
+        results = []
+        for i, p in enumerate(base_products):
+            results.append({
+                "url": f"https://www.aliexpress.com/item/{1000000 + i}.html",
+                "title": p["title"],
+                "price": p["price_usd"] * 7.2,  # CNY
+                "price_usd": p["price_usd"],
+                "sales_count": p["orders"],
+                "shop_name": f"AliExpress Store {i+1}",
+                "shop_rating": 4.5 + (i * 0.05),
+                "images": [f"https://ae01.alicdn.com/img/mock_{i}.jpg"],
+                "platform": "aliexpress",
             })
 
         return results

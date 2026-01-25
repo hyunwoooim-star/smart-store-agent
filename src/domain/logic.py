@@ -60,6 +60,7 @@ class LandedCostCalculator:
         market: MarketType = MarketType.NAVER,
         shipping_method: str = "항공",
         include_ad_cost: bool = True,
+        source_platform: str = "1688",  # v4.3: "1688" | "aliexpress"
     ) -> CostResult:
         """마진 계산 실행
 
@@ -69,6 +70,7 @@ class LandedCostCalculator:
             market: 판매 마켓 (naver, coupang, amazon)
             shipping_method: 배송 방법 (항공/해운)
             include_ad_cost: 광고비 포함 여부
+            source_platform: 소싱 플랫폼 (v4.3) - aliexpress는 배송비 포함 가정
 
         Returns:
             CostResult: 상세 비용 분석 결과
@@ -79,7 +81,11 @@ class LandedCostCalculator:
         product_cost = int(product.price_cny * cfg.exchange_rate)
 
         # 2. 중국 내 비용 (구매대행 필수 비용)
-        china_shipping = cfg.china_domestic_shipping  # 중국 내 배송비
+        # v4.3: 알리익스프레스는 무료배송 포함 상품이 많아 china_shipping=0
+        if source_platform == "aliexpress":
+            china_shipping = 0  # 알리는 배송비 포함 가정 (CTO 지시)
+        else:
+            china_shipping = cfg.china_domestic_shipping  # 중국 내 배송비 (1688)
         china_total = product_cost + china_shipping
         agency_fee = int(china_total * cfg.agency_fee_rate)  # 구매대행 수수료 10%
 
