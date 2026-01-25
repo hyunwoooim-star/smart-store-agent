@@ -38,6 +38,15 @@ def render():
     # ========== Step 1: 상품 정보 입력 ==========
     st.subheader("📦 Step 1: 상품 정보")
 
+    # v4.4: 소싱 플랫폼 모드 전환
+    source_mode = st.radio(
+        "소싱 플랫폼",
+        options=["🇨🇳 1688 (위안)", "🛒 알리익스프레스 (달러)"],
+        horizontal=True,
+        key="source_platform_mode"
+    )
+    is_aliexpress_mode = "알리익스프레스" in source_mode
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -54,14 +63,28 @@ def render():
             index=4  # 생활용품
         )
 
-        price_cny = st.number_input(
-            "1688 도매가 (위안)",
-            min_value=1.0,
-            max_value=10000.0,
-            value=35.0,
-            step=1.0,
-            help="1688에서 확인한 단가"
-        )
+        # v4.4: 플랫폼별 가격 입력
+        if is_aliexpress_mode:
+            price_usd = st.number_input(
+                "알리익스프레스 가격 (USD)",
+                min_value=0.1,
+                max_value=1000.0,
+                value=10.0,
+                step=0.5,
+                help="알리익스프레스 달러 가격 (배송비 포함 가정)"
+            )
+            # USD → CNY 변환
+            price_cny = price_usd * config.exchange_rate_usd_cny
+            st.caption(f"💱 환산: {price_cny:.1f} 위안 (1 USD = {config.exchange_rate_usd_cny} CNY)")
+        else:
+            price_cny = st.number_input(
+                "1688 도매가 (위안)",
+                min_value=1.0,
+                max_value=10000.0,
+                value=35.0,
+                step=1.0,
+                help="1688에서 확인한 단가"
+            )
 
     with col2:
         weight_kg = st.number_input(
@@ -107,8 +130,10 @@ def render():
 
     # ========== 분석 시작 버튼 ==========
     if st.button("🚀 전체 분석 시작", type="primary", use_container_width=True, disabled=not product_name):
-        # 결과 저장용 세션
+        # v4.4: 새 분석 시작 시 session state 초기화
         st.session_state.sourcing_result = {}
+        st.session_state.excluded_competitors = set()  # 경쟁사 제외 목록 초기화
+        st.session_state.image_search_result = None    # 이미지 검색 결과 초기화
 
         # ========== Step 2: 시장 조사 ==========
         with st.spinner("📊 Step 2: 시장 조사 중..."):
@@ -135,12 +160,14 @@ def render():
                 # 원가의 2.5배를 기본 목표가로
                 target_price = int(price_cny * settings["exchange_rate"] * 2.5)
 
+            # v4.4: source_platform 전달 (알리는 중국 내 배송비 0)
             margin_result = calculator.calculate(
                 product=product,
                 target_price=target_price,
                 market=market,
                 shipping_method=shipping_method,
-                include_ad_cost=True
+                include_ad_cost=True,
+                source_platform="aliexpress" if is_aliexpress_mode else "1688"
             )
             st.session_state.sourcing_result["margin"] = margin_result
             st.session_state.sourcing_result["target_price"] = target_price
@@ -245,7 +272,14 @@ def _render_results(result: Dict[str, Any], settings: Dict[str, Any]):
 
     # ========== Step 2: 시장 조사 결과 ==========
     st.subheader("📊 시장 조사")
-    market_result = result.get("market")
+
+    # v4.4: 이미지 검색 결과가 있으면 우선 표시
+    image_result = st.session_state.get("image_search_result")
+    if image_result:
+        st.info("🔍 이미지 검색 결과 (Google Lens)")
+        market_result = image_result
+    else:
+        market_result = result.get("market")
 
     if market_result:
         col1, col2, col3, col4 = st.columns(4)
@@ -254,9 +288,90 @@ def _render_results(result: Dict[str, Any], settings: Dict[str, Any]):
         col3.metric("평균가", f"{market_result['avg_price']:,}원")
         col4.metric("추천가", f"{market_result['recommended_price']:,}원")
 
-        with st.expander("경쟁사 목록"):
-            for i, comp in enumerate(market_result.get("competitors", []), 1):
-                st.write(f"{i}. **{comp.title[:40]}...** - {comp.price:,}원")
+        # v4.4: 경쟁사 목록 UI 개선 (썸네일 + 체크박스)
+        with st.expander("경쟁사 목록 (제외 가능)", expanded=True):
+            # session state 초기화
+            if "excluded_competitors" not in st.session_state:
+                st.session_state.excluded_competitors = set()
+
+            competitors = market_result.get("competitors", [])
+
+            if competitors:
+                # 3열 그리드
+                cols = st.columns(3)
+                for i, comp in enumerate(competitors):
+                    with cols[i % 3]:
+                        # 체크박스 상태
+                        is_excluded = i in st.session_state.excluded_competitors
+
+                        # 썸네일 (있으면 표시)
+                        if hasattr(comp, 'thumbnail') and comp.thumbnail:
+                            try:
+                                if is_excluded:
+                                    st.image(comp.thumbnail, width=80, caption="제외됨")
+                                else:
+                                    st.image(comp.thumbnail, width=100)
+                            except Exception:
+                                pass
+
+                        # 상품 정보 (제외 시 흐리게)
+                        title_display = comp.title[:25] + "..." if len(comp.title) > 25 else comp.title
+                        if is_excluded:
+                            st.markdown(f"<span style='opacity:0.4; text-decoration:line-through;'>{title_display}</span>", unsafe_allow_html=True)
+                            st.markdown(f"<span style='opacity:0.4'>💰 ~~{comp.price:,}원~~</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"**{title_display}**")
+                            st.markdown(f"💰 **{comp.price:,}원**")
+
+                        # 출처
+                        source = getattr(comp, 'source', '네이버쇼핑')
+                        st.caption(f"출처: {source}")
+
+                        # 제외 체크박스
+                        excluded = st.checkbox(
+                            "제외",
+                            key=f"exclude_{i}",
+                            value=is_excluded
+                        )
+                        if excluded:
+                            st.session_state.excluded_competitors.add(i)
+                        else:
+                            st.session_state.excluded_competitors.discard(i)
+
+                        st.markdown("---")
+
+                # v4.4: 제외 반영 재계산 버튼
+                if st.session_state.excluded_competitors:
+                    st.warning(f"⚠️ {len(st.session_state.excluded_competitors)}개 상품 제외됨")
+
+                    if st.button("🔄 제외 반영하여 추천가 재계산", key="recalc_price_btn"):
+                        # 제외되지 않은 경쟁사만 필터링
+                        filtered_comps = [
+                            c for i, c in enumerate(competitors)
+                            if i not in st.session_state.excluded_competitors
+                        ]
+
+                        if filtered_comps:
+                            prices = [c.price for c in filtered_comps if c.price > 0]
+                            if prices:
+                                new_min = min(prices)
+                                new_max = max(prices)
+                                new_avg = sum(prices) // len(prices)
+                                new_recommended = max(int(new_avg * 0.9), new_min)
+
+                                # session state 업데이트
+                                st.session_state.sourcing_result["market"]["min_price"] = new_min
+                                st.session_state.sourcing_result["market"]["max_price"] = new_max
+                                st.session_state.sourcing_result["market"]["avg_price"] = new_avg
+                                st.session_state.sourcing_result["market"]["recommended_price"] = new_recommended
+                                st.session_state.sourcing_result["market"]["competitor_count"] = len(filtered_comps)
+
+                                st.success(f"✅ 새 추천가: {new_recommended:,}원 ({len(filtered_comps)}개 기준)")
+                                st.rerun()
+                        else:
+                            st.error("모든 경쟁사를 제외할 수 없습니다.")
+            else:
+                st.info("경쟁사 데이터 없음")
     else:
         st.info("시장 조사 데이터 없음 (API 미설정)")
 
@@ -416,6 +531,36 @@ def _render_manual_input_section() -> Optional[Dict]:
                 st.image(image_url, width=150)
             except Exception:
                 st.warning("이미지 로드 실패 - URL을 확인하세요")
+
+            # v4.4: 이미지 검색 버튼 (SerpApi Google Lens)
+            serpapi_key = os.getenv("SERPAPI_KEY")
+            if not serpapi_key:
+                st.warning("⚠️ SerpApi 키 미설정")
+                st.button("🔍 이미지로 경쟁사 검색", disabled=True, key="image_search_disabled")
+            else:
+                if st.button("🔍 이미지로 경쟁사 검색 (Credit 소모)", key="image_search_btn"):
+                    with st.spinner("Google Lens로 검색 중..."):
+                        try:
+                            from src.analyzers.market_researcher import MarketResearcher
+                            researcher = MarketResearcher()
+                            result = researcher.research_by_image(image_url, max_results=10)
+
+                            if result.competitors:
+                                st.session_state.image_search_result = {
+                                    "query": result.query,
+                                    "competitor_count": len(result.competitors),
+                                    "min_price": result.price_range[0],
+                                    "max_price": result.price_range[1],
+                                    "avg_price": result.average_price,
+                                    "recommended_price": result.recommended_price,
+                                    "price_strategy": result.price_strategy,
+                                    "competitors": result.competitors,
+                                }
+                                st.success(f"✅ {len(result.competitors)}개 유사 상품 발견!")
+                            else:
+                                st.warning("유사 상품을 찾지 못했습니다.")
+                        except Exception as e:
+                            st.error(f"검색 오류: {e}")
 
         sales_count = st.number_input(
             "판매량",

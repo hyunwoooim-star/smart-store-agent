@@ -33,6 +33,8 @@ class AppConfig:
     """
     # 환율
     exchange_rate: float = 195              # 원/위안 (2026년 기준)
+    exchange_rate_usd: float = 1400         # 원/달러 (v4.4)
+    exchange_rate_usd_cny: float = 7.2      # 달러/위안 (v4.4 - 알리 모드용)
 
     # 세금
     vat_rate: float = 0.10                  # 부가세 10%

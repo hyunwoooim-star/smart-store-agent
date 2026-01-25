@@ -544,6 +544,8 @@ def get_app_config() -> AppConfig:
     settings = get_current_settings()
     return AppConfig(
         exchange_rate=settings["exchange_rate"],
+        exchange_rate_usd=settings.get("exchange_rate_usd", 1400),  # v4.4
+        exchange_rate_usd_cny=settings.get("exchange_rate_usd_cny", 7.2),  # v4.4
         shipping_rate_air=settings["shipping_rate_air"],
         shipping_rate_sea=settings["shipping_rate_sea"],
         domestic_shipping=settings["domestic_shipping"],
