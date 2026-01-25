@@ -80,21 +80,29 @@ class LandedCostCalculator:
         # 1. 상품 원가
         product_cost = int(product.price_cny * cfg.exchange_rate)
 
-        # 2. 중국 내 비용 (구매대행 필수 비용)
-        # v4.3: 알리익스프레스는 무료배송 포함 상품이 많아 china_shipping=0
+        # 2. 중국 내 비용
+        # v4.5: 알리익스프레스 vs 1688 비용 구조 완전 분리
         if source_platform == "aliexpress":
-            china_shipping = 0  # 알리는 배송비 포함 가정 (CTO 지시)
+            # 알리익스프레스: 직구 (구매대행 불필요, 배송비 포함)
+            china_shipping = 0      # 판매자가 배송 처리
+            agency_fee = 0          # 직접 구매 (카드 결제)
         else:
-            china_shipping = cfg.china_domestic_shipping  # 중국 내 배송비 (1688)
+            # 1688: 구매대행 필수
+            china_shipping = cfg.china_domestic_shipping  # 중국 내 배송비
+            china_total = product_cost + china_shipping
+            agency_fee = int(china_total * cfg.agency_fee_rate)  # 구매대행 수수료 10%
         china_total = product_cost + china_shipping
-        agency_fee = int(china_total * cfg.agency_fee_rate)  # 구매대행 수수료 10%
 
         # 3. 무게 계산
         volume_weight = self.calculate_volume_weight(product)
         billable_weight = self.get_billable_weight(product.weight_kg, volume_weight)
 
         # 4. 해외 배송비
-        if shipping_method == "항공":
+        # v4.5: 알리익스프레스 무료배송 상품은 배송비 0 (가격에 포함)
+        if source_platform == "aliexpress":
+            # 알리 무료배송: 판매가에 배송비 포함되어 있음
+            shipping_international = 0
+        elif shipping_method == "항공":
             shipping_international = int(billable_weight * cfg.shipping_rate_air)
         else:
             # 해운: CBM 기반 계산 (1 CBM당 75,000원, 최소 6,000원)

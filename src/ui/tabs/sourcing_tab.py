@@ -38,23 +38,82 @@ def render():
     # ========== Step 1: 상품 정보 입력 ==========
     st.subheader("📦 Step 1: 상품 정보")
 
+    # v4.5: URL 입력 → 자동 추출 (최상단)
+    st.markdown("##### 🔗 상품 URL (권장)")
+    url_col1, url_col2 = st.columns([3, 1])
+
+    with url_col1:
+        source_url = st.text_input(
+            "상품 URL",
+            placeholder="https://detail.1688.com/... 또는 https://aliexpress.com/...",
+            key="source_url_main",
+            label_visibility="collapsed"
+        )
+
+    # URL 플랫폼 자동 감지 및 추출 버튼
+    detected_platform = None
+    if source_url:
+        if "1688.com" in source_url:
+            detected_platform = "1688"
+        elif "aliexpress" in source_url.lower():
+            detected_platform = "aliexpress"
+        elif "taobao" in source_url.lower():
+            detected_platform = "taobao"
+
+    with url_col2:
+        extract_disabled = not source_url or detected_platform is None
+        if st.button("🔍 정보 추출", disabled=extract_disabled, use_container_width=True):
+            _extract_product_info(source_url, detected_platform)
+
+    # 감지 결과 표시
+    if source_url:
+        if detected_platform == "1688":
+            st.caption("🇨🇳 1688 상품 감지됨")
+        elif detected_platform == "aliexpress":
+            st.caption("🛒 알리익스프레스 상품 감지됨")
+        elif detected_platform == "taobao":
+            st.caption("🛍️ 타오바오 상품 감지됨 (지원 예정)")
+        else:
+            st.caption("⚠️ 지원하지 않는 URL 형식")
+
+    # 추출된 정보 미리보기
+    extracted = st.session_state.get("extracted_product")
+    if extracted:
+        with st.expander("📋 추출된 정보", expanded=True):
+            prev_col1, prev_col2 = st.columns([1, 2])
+            with prev_col1:
+                if extracted.get("image_url"):
+                    st.image(extracted["image_url"], width=120)
+            with prev_col2:
+                st.markdown(f"**{extracted.get('name', '이름 없음')}**")
+                st.caption(f"💰 {extracted.get('price_cny', 0):.1f} 위안")
+                if extracted.get("weight_kg"):
+                    st.caption(f"📦 {extracted['weight_kg']}kg")
+
+    st.divider()
+
     # v4.4: 소싱 플랫폼 모드 전환
     source_mode = st.radio(
         "소싱 플랫폼",
         options=["🇨🇳 1688 (위안)", "🛒 알리익스프레스 (달러)"],
         horizontal=True,
-        key="source_platform_mode"
+        key="source_platform_mode",
+        index=1 if detected_platform == "aliexpress" else 0  # URL에 따라 자동 선택
     )
     is_aliexpress_mode = "알리익스프레스" in source_mode
+
+    # 추출된 값을 기본값으로 사용
+    default_name = extracted.get("name", "") if extracted else ""
+    default_price = extracted.get("price_cny", 35.0) if extracted else 35.0
 
     col1, col2 = st.columns(2)
 
     with col1:
         product_name = st.text_input(
             "상품명",
-            value="",
+            value=default_name,
             placeholder="예: 미니멀 데스크 정리함",
-            help="네이버 검색에 사용될 상품명"
+            help="네이버 검색에 사용될 상품명 (URL 추출 시 자동 입력)"
         )
 
         category = st.selectbox(
@@ -63,19 +122,18 @@ def render():
             index=4  # 생활용품
         )
 
-        # v4.4: 플랫폼별 가격 입력
+        # v4.4: 플랫폼별 가격 입력 (v4.5: 추출값 사용)
+        USD_CNY_RATE = 7.2
         if is_aliexpress_mode:
+            default_usd = (default_price / USD_CNY_RATE) if default_price else 10.0
             price_usd = st.number_input(
                 "알리익스프레스 가격 (USD)",
                 min_value=0.1,
                 max_value=1000.0,
-                value=10.0,
+                value=float(default_usd),
                 step=0.5,
-                help="알리익스프레스 달러 가격 (배송비 포함 가정)"
+                help="알리익스프레스 달러 가격 (URL 추출 시 자동 입력)"
             )
-            # TODO: [Hotfix] AppConfig 갱신 문제 해결 후 config.exchange_rate_usd_cny로 복구 필요
-            # USD → CNY 변환 (임시 상수)
-            USD_CNY_RATE = 7.2
             price_cny = price_usd * USD_CNY_RATE
             st.caption(f"💱 환산: {price_cny:.1f} 위안 (1 USD = {USD_CNY_RATE} CNY)")
         else:
@@ -83,28 +141,34 @@ def render():
                 "1688 도매가 (위안)",
                 min_value=1.0,
                 max_value=10000.0,
-                value=35.0,
+                value=float(default_price),
                 step=1.0,
-                help="1688에서 확인한 단가"
+                help="1688에서 확인한 단가 (URL 추출 시 자동 입력)"
             )
 
     with col2:
+        # v4.5: 추출된 무게/치수 사용
+        default_weight = extracted.get("weight_kg", 1.0) if extracted else 1.0
+        default_length = extracted.get("length_cm", 30) if extracted else 30
+        default_width = extracted.get("width_cm", 20) if extracted else 20
+        default_height = extracted.get("height_cm", 15) if extracted else 15
+
         weight_kg = st.number_input(
             "실제 무게 (kg)",
             min_value=0.1,
             max_value=100.0,
-            value=1.0,
+            value=float(default_weight),
             step=0.1
         )
 
         st.markdown("**📦 박스 사이즈 (cm)**")
         dim_col1, dim_col2, dim_col3 = st.columns(3)
         with dim_col1:
-            length = st.number_input("가로", min_value=1, value=30, step=1)
+            length = st.number_input("가로", min_value=1, value=int(default_length), step=1)
         with dim_col2:
-            width = st.number_input("세로", min_value=1, value=20, step=1)
+            width = st.number_input("세로", min_value=1, value=int(default_width), step=1)
         with dim_col3:
-            height = st.number_input("높이", min_value=1, value=15, step=1)
+            height = st.number_input("높이", min_value=1, value=int(default_height), step=1)
 
     col3, col4 = st.columns(2)
     with col3:
@@ -131,21 +195,29 @@ def render():
     st.divider()
 
     # ========== 분석 시작 버튼 ==========
-    if st.button("🚀 전체 분석 시작", type="primary", use_container_width=True, disabled=not product_name):
+    # v4.5: URL이 있거나 상품명이 있으면 활성화
+    can_analyze = bool(product_name) or bool(source_url and extracted)
+    if st.button("🚀 전체 분석 시작", type="primary", use_container_width=True, disabled=not can_analyze):
         # v4.4: 새 분석 시작 시 session state 초기화
         st.session_state.sourcing_result = {}
         st.session_state.excluded_competitors = set()  # 경쟁사 제외 목록 초기화
         st.session_state.image_search_result = None    # 이미지 검색 결과 초기화
 
+        # v4.5: 추출된 상품명 fallback
+        analysis_name = product_name or (extracted.get("name") if extracted else "")
+        if not analysis_name:
+            st.error("❌ 상품명이 필요합니다. URL에서 추출하거나 직접 입력하세요.")
+            st.stop()
+
         # ========== Step 2: 시장 조사 ==========
         with st.spinner("📊 Step 2: 시장 조사 중..."):
-            market_result = _run_market_research(product_name)
+            market_result = _run_market_research(analysis_name)
             st.session_state.sourcing_result["market"] = market_result
 
         # ========== Step 3: 마진 분석 ==========
         with st.spinner("💰 Step 3: 마진 분석 중..."):
             product = Product(
-                name=product_name,
+                name=analysis_name,
                 price_cny=price_cny,
                 weight_kg=weight_kg,
                 length_cm=length,
@@ -177,10 +249,10 @@ def render():
         # ========== Step 4: Pre-Flight 체크 ==========
         with st.spinner("✅ Step 4: 리스크 체크 중..."):
             checker = PreFlightChecker(strict_mode=False)
-            preflight_result = checker.check_product(product_name, "")
+            preflight_result = checker.check_product(analysis_name, "")
             st.session_state.sourcing_result["preflight"] = preflight_result
 
-        st.session_state.sourcing_result["product_name"] = product_name
+        st.session_state.sourcing_result["product_name"] = analysis_name
         st.session_state.sourcing_result["price_cny"] = price_cny
         st.session_state.sourcing_result["category"] = category
 
@@ -209,6 +281,127 @@ def _render_api_status():
             st.success("SerpApi: 연결됨")
         else:
             st.info("SerpApi: 미설정 (선택)")
+
+
+def _extract_product_info(url: str, platform: str):
+    """URL에서 상품 정보 추출 (v4.5)"""
+    import asyncio
+
+    with st.spinner(f"🔍 {platform} 상품 정보 추출 중..."):
+        try:
+            if platform == "1688":
+                # Apify API 사용
+                apify_token = os.getenv("APIFY_API_TOKEN")
+                if not apify_token:
+                    st.warning("⚠️ APIFY_API_TOKEN이 필요합니다. Mock 데이터 사용.")
+                    # Mock 데이터
+                    st.session_state.extracted_product = {
+                        "name": "1688 상품 (URL에서 추출)",
+                        "price_cny": 35.0,
+                        "image_url": None,
+                        "weight_kg": 1.0,
+                        "length_cm": 30,
+                        "width_cm": 20,
+                        "height_cm": 15,
+                    }
+                    st.success("✅ Mock 데이터 로드 완료")
+                    st.rerun()
+                    return
+
+                # 실제 스크래핑
+                from src.adapters.alibaba_scraper import scrape_1688
+                product = asyncio.run(scrape_1688(url))
+
+                st.session_state.extracted_product = {
+                    "name": product.name,
+                    "price_cny": product.price_cny,
+                    "image_url": product.image_url,
+                    "weight_kg": product.weight_kg or 1.0,
+                    "length_cm": product.length_cm or 30,
+                    "width_cm": product.width_cm or 20,
+                    "height_cm": product.height_cm or 15,
+                }
+                st.success(f"✅ 추출 완료: {product.name[:30]}...")
+
+            elif platform == "aliexpress":
+                # v4.5: 알리익스프레스 - HTTP 직접 파싱 시도
+                import re
+                import urllib.parse
+                import requests
+
+                # URL에서 상품 ID 추출
+                match = re.search(r'/item/(\d+)\.html', url)
+                product_id = match.group(1) if match else "unknown"
+
+                product_name = ""
+                price_usd = 10.0
+                image_url = None
+
+                try:
+                    # 직접 HTTP 요청 (User-Agent 설정)
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                    resp = requests.get(url, headers=headers, timeout=10)
+
+                    if resp.status_code == 200:
+                        html = resp.text
+
+                        # 상품명 추출 (title 태그)
+                        title_match = re.search(r'<title>([^<]+)</title>', html)
+                        if title_match:
+                            raw_title = title_match.group(1)
+                            # "- AliExpress" 제거하고 앞부분만
+                            product_name = raw_title.split(' - ')[0].strip()[:60]
+
+                        # 가격 추출 시도 (여러 패턴)
+                        price_patterns = [
+                            r'"formattedActivityPrice":"US \$?([\d.]+)"',
+                            r'"minPrice":([\d.]+)',
+                            r'"salePrice":([\d.]+)',
+                            r'US \$\s*([\d.]+)',
+                        ]
+                        for pattern in price_patterns:
+                            price_match = re.search(pattern, html)
+                            if price_match:
+                                price_usd = float(price_match.group(1))
+                                break
+
+                        # 이미지 추출
+                        img_match = re.search(r'"imageUrl":"(https://[^"]+)"', html)
+                        if img_match:
+                            image_url = img_match.group(1)
+
+                except Exception as e:
+                    st.warning(f"⚠️ 페이지 로드 실패: {e}")
+
+                if not product_name:
+                    product_name = f"AliExpress #{product_id}"
+
+                st.session_state.extracted_product = {
+                    "name": product_name,
+                    "price_cny": price_usd * 7.2,
+                    "price_usd": price_usd,
+                    "image_url": image_url,
+                    "weight_kg": 0.5,
+                    "product_id": product_id,
+                }
+
+                if product_name and price_usd > 1:
+                    st.success(f"✅ 추출 완료: {product_name[:30]}... / ${price_usd:.2f}")
+                else:
+                    st.warning("⚠️ 일부 정보만 추출됨 - 가격 확인 필요")
+                return
+
+            else:
+                st.error(f"❌ 지원하지 않는 플랫폼: {platform}")
+                return
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ 추출 실패: {e}")
+            st.session_state.extracted_product = None
 
 
 def _run_market_research(keyword: str) -> Optional[Dict[str, Any]]:
