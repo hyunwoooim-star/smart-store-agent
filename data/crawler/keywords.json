@@ -5,7 +5,7 @@
     "category": "테스트",
     "is_active": true,
     "priority": 1,
-    "last_crawled_at": "2026-01-24T09:24:11.463332",
+    "last_crawled_at": "2026-01-25T09:08:39.040314",
     "created_at": "2026-01-24T01:46:52.936712"
   },
   {
@@ -14,7 +14,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 1,
-    "last_crawled_at": "2026-01-24T09:29:05.034834",
+    "last_crawled_at": "2026-01-25T09:08:45.431184",
     "created_at": "2026-01-24T09:21:31.989456"
   },
   {
@@ -23,7 +23,7 @@
     "category": "사무용품",
     "is_active": true,
     "priority": 2,
-    "last_crawled_at": "2026-01-24T09:33:21.145736",
+    "last_crawled_at": "2026-01-25T09:08:51.794831",
     "created_at": "2026-01-24T09:21:31.990623"
   },
   {
@@ -32,7 +32,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 2,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:08:58.150315",
     "created_at": "2026-01-24T09:21:32.002761"
   },
   {
@@ -41,7 +41,7 @@
     "category": "사무용품",
     "is_active": true,
     "priority": 3,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:04.665787",
     "created_at": "2026-01-24T09:21:32.012714"
   },
   {
@@ -50,7 +50,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 3,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:10.927174",
     "created_at": "2026-01-24T09:21:32.023138"
   },
   {
@@ -59,7 +59,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 4,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:17.190208",
     "created_at": "2026-01-24T09:21:32.033696"
   },
   {
@@ -68,7 +68,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 4,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:23.571621",
     "created_at": "2026-01-24T09:21:32.044577"
   },
   {
@@ -77,7 +77,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 5,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:29.847566",
     "created_at": "2026-01-24T09:21:32.055605"
   },
   {
@@ -86,7 +86,7 @@
     "category": "홈인테리어",
     "is_active": true,
     "priority": 5,
-    "last_crawled_at": null,
+    "last_crawled_at": "2026-01-25T09:09:36.255376",
     "created_at": "2026-01-24T09:42:09.053253"
   }
 ]

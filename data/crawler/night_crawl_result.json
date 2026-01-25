@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-01-25T00:23:12.873151",
+  "stats": {
+    "discovery": {
+      "start": "2026-01-25T00:22:59.059377",
+      "end": "2026-01-25T00:23:07.871111",
+      "keywords_processed": 3,
+      "products_found": 30,
+      "products_discovered": 0
+    },
+    "enrichment": {
+      "start": "2026-01-25T00:23:12.871790",
+      "end": "2026-01-25T00:23:12.872581",
+      "products_enriched": 0,
+      "products_qualified": 0,
+      "products_rejected": 0
+    },
+    "errors": []
+  }
+}

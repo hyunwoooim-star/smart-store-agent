@@ -73,9 +73,11 @@ def render():
                 step=0.5,
                 help="알리익스프레스 달러 가격 (배송비 포함 가정)"
             )
-            # USD → CNY 변환
-            price_cny = price_usd * config.exchange_rate_usd_cny
-            st.caption(f"💱 환산: {price_cny:.1f} 위안 (1 USD = {config.exchange_rate_usd_cny} CNY)")
+            # TODO: [Hotfix] AppConfig 갱신 문제 해결 후 config.exchange_rate_usd_cny로 복구 필요
+            # USD → CNY 변환 (임시 상수)
+            USD_CNY_RATE = 7.2
+            price_cny = price_usd * USD_CNY_RATE
+            st.caption(f"💱 환산: {price_cny:.1f} 위안 (1 USD = {USD_CNY_RATE} CNY)")
         else:
             price_cny = st.number_input(
                 "1688 도매가 (위안)",
